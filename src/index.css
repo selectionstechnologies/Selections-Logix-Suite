@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body { @apply bg-surface text-ink antialiased; font-size: 14px; }
+  [dir='rtl'] body { font-family: 'Noto Naskh Arabic', Inter, system-ui, sans-serif; }
+  :focus-visible { outline: 2px solid #111827; outline-offset: 2px; border-radius: 4px; }
+  h1, h2, h3 { @apply font-semibold; }
+}
+
+@layer components {
+  .card { @apply bg-white border border-line rounded-xl shadow-card; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap; }
+  .btn-primary { @apply btn bg-primary text-ink hover:bg-primary-hover; }
+  .btn-danger { @apply btn bg-danger text-white hover:bg-danger-hover; }
+  .btn-outline { @apply btn bg-white border border-line text-ink hover:bg-surface; }
+  .btn-ghost { @apply btn text-ink-muted hover:bg-gray-100 hover:text-ink; }
+  .btn-sm { @apply px-2.5 py-1.5 text-xs; }
+  .input { @apply w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink placeholder:text-gray-400 focus:border-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:bg-gray-50 disabled:text-ink-muted; }
+  .input-error { @apply border-danger focus:border-danger focus:ring-danger/30; }
+  .label { @apply mb-1 block text-xs font-medium text-gray-700; }
+  .link { @apply font-medium text-ink underline decoration-primary decoration-2 underline-offset-2 hover:decoration-primary-hover; }
+  .chip { @apply inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700; }
+}
+
+@layer utilities {
+  .scroll-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scroll-thin::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 6px; }
+  [dir='rtl'] .rtl-flip { transform: scaleX(-1); }
+}
+
+/* Printing: the app is hidden and only the portal copy of the document is printed. */
+#print-root { display: none; }
+
+@media print {
+  html, body { background: #FFFFFF !important; }
+  #root { display: none !important; }
+  #print-root { display: block !important; }
+  .print-page { break-after: page; page-break-after: always; }
+  .print-page:last-child { break-after: auto; page-break-after: auto; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+}
