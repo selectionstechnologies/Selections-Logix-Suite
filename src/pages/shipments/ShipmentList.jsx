@@ -7,7 +7,7 @@ import { PrintPreview, ShippingLabel } from '../../components/print/index.jsx';
 import { useAuth } from '../../store/authStore.js';
 import { useData } from '../../store/dataStore.js';
 import { confirm, toast } from '../../store/uiStore.js';
-import { useLookups, useMoney, useScopedShipments, useT } from '../../hooks/useApp.js';
+import { useLookups, useMoney, useScopedShipments } from '../../hooks/useApp.js';
 import { CITY_NAMES } from '../../data/geo.js';
 import { COURIER_NAMES } from '../../data/shipments.js';
 import { NEXT_STATUS, SHIPMENT_STATUSES, STATUS } from '../../utils/status.js';
@@ -95,20 +95,19 @@ export function LabelPrintModal({ open, onClose, rows }) {
       title={`Print ${rows.length} label(s)`}
       filename={rows.length === 1 ? `label-${rows[0].awb}` : `labels-${rows.length}`}
       size={size}
-      onPrint={() => logPrint('Shipping Label', rows.map((r) => r.awb), size)}
+      onPrint={() => logPrint('Shipping Label', [...new Set(rows.map((r) => r.awb))], size)}
       extraActions={(
         <select aria-label="Label size" className="input me-auto !w-auto" value={size} onChange={(e) => setSize(e.target.value)}>
           <option value="4x6">4x6 Thermal</option><option value="a5">A5</option><option value="a4">A4</option>
         </select>
       )}
     >
-      {rows.map((s) => <ShippingLabel key={s.id} shipment={s} size={size} />)}
+      {rows.map((s) => <ShippingLabel key={`${s.id}-${s.pieceNo || 1}`} shipment={s} size={size} />)}
     </PrintPreview>
   );
 }
 
 export function ShipmentList() {
-  const t = useT();
   const navigate = useNavigate();
   const { money } = useMoney();
   const lookups = useLookups();
@@ -146,9 +145,9 @@ export function ShipmentList() {
   return (
     <div>
       <PageHeader
-        title={t('Shipments')}
+        title="Shipments"
         subtitle={`${shipments.length} shipments in your view`}
-        actions={user.role !== 'warehouse' && <Link to="/shipments/new" className="btn-primary"><PackagePlus size={16} aria-hidden /> {t('Create Shipment')}</Link>}
+        actions={user.role !== 'warehouse' && <Link to="/shipments/new" className="btn-primary"><PackagePlus size={16} aria-hidden /> Create Shipment</Link>}
       />
       <DataTable
         columns={columns}

@@ -28,7 +28,7 @@ const toMatrix = (rows, columns) => rows.map((r) => columns.map((c) => safeCell(
 
 export function exportCSV(rows, columns, filename = 'export') {
   const csv = Papa.unparse({ fields: columns.map((c) => c.header), data: toMatrix(rows, columns) });
-  // BOM so Excel opens Urdu and other non-ASCII text correctly.
+  // BOM so Excel opens non-ASCII text correctly.
   download(new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' }), `${filename}.csv`);
 }
 

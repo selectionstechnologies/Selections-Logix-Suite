@@ -19,6 +19,40 @@ export const PACKAGING = [
   { value: 'fragile', label: 'Fragile wrap', fee: 350 },
 ];
 
+// What is inside the parcel. Rules in the booking form read these flags.
+export const PRODUCT_TYPES = [
+  { value: 'parcel', label: 'General Parcel', hint: 'Everyday goods with no special handling' },
+  { value: 'document', label: 'Documents', hint: 'Papers, cheques, certificates in an envelope', document: true },
+  { value: 'clothing', label: 'Clothing & Textile', hint: 'Garments, fabric, shoes' },
+  { value: 'electronics', label: 'Electronics', hint: 'Phones, laptops, accessories. Insurance recommended', insure: true },
+  { value: 'fragile', label: 'Fragile', hint: 'Glass, ceramics, decor. Fragile wrap recommended', fragile: true },
+  { value: 'cosmetics', label: 'Cosmetics & Beauty', hint: 'Creams, perfumes, makeup' },
+  { value: 'food', label: 'Food / Perishable', hint: 'Same Day or Next Day only', perishable: true },
+  { value: 'liquid', label: 'Liquids', hint: 'Sealed containers only. Not allowed cross-border', liquid: true },
+  { value: 'valuables', label: 'Valuables', hint: 'Jewellery, watches. Insurance is mandatory', insure: true, mustInsure: true },
+  { value: 'other', label: 'Other', hint: 'Describe the goods in the product name' },
+];
+export const productTypeLabel = (v) => PRODUCT_TYPES.find((p) => p.value === v)?.label || v || '-';
+
+export const UNITS = ['Pcs', 'Box', 'Pack', 'Pair', 'Set', 'Dozen', 'Kg', 'Litre', 'Envelope'];
+
+// Who pays and when. COD collects the goods amount from the receiver; To Pay collects the delivery charges.
+export const PAYMENT_TYPES = [
+  { value: 'prepaid', label: 'Prepaid', hint: 'Sender pays the delivery charges now. Nothing is collected at the door.' },
+  { value: 'cod', label: 'Cash on Delivery', hint: 'Rider collects the goods amount from the receiver and it is remitted to the sender.' },
+  { value: 'topay', label: 'To Pay', hint: 'Receiver pays the delivery charges to the rider at the door.' },
+];
+export const paymentTypeLabel = (v) => PAYMENT_TYPES.find((p) => p.value === v)?.label || 'Prepaid';
+
+export const PAYMENT_METHODS = [
+  { value: 'cash', label: 'Cash', hint: 'Paid at the counter' },
+  { value: 'online', label: 'Online', hint: 'JazzCash, Easypaisa, bank or card' },
+  { value: 'credit', label: 'Credit (Account)', hint: 'Added to the merchant monthly invoice' },
+  { value: 'cod-deduct', label: 'Deduct from COD', hint: 'Charges are taken out of the COD remittance' },
+];
+export const paymentMethodLabel = (v) => PAYMENT_METHODS.find((p) => p.value === v)?.label || v;
+export const ONLINE_CHANNELS = ['JazzCash', 'Easypaisa', 'Bank Transfer', 'Card / POS'];
+
 export const DEFAULT_RATE_CARD = {
   // first 0.5 kg per zone, per service
   zones: [

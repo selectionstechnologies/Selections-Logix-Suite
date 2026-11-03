@@ -16,6 +16,66 @@ export const CITIES = [
 export const CITY_MAP = Object.fromEntries(CITIES.map((c) => [c.name, c]));
 export const CITY_NAMES = CITIES.map((c) => c.name);
 
+// Delivery zones per city (dummy). Names match rider zones ("Lahore North") so a parcel can be routed to a rider.
+const zone = (city, side, areas) => ({ value: `${city} ${side}`, side, areas });
+export const ZONES = {
+  Lahore: [
+    zone('Lahore', 'Central', 'Gulberg, Model Town, Garden Town'),
+    zone('Lahore', 'North', 'Shahdara, Walled City, Ravi Road'),
+    zone('Lahore', 'South', 'DHA, Bahria Town, Askari'),
+    zone('Lahore', 'East', 'Cantt, Harbanspura, Wapda Town'),
+    zone('Lahore', 'West', 'Johar Town, Iqbal Town, Thokar'),
+  ],
+  Faisalabad: [
+    zone('Faisalabad', 'Central', 'Clock Tower, D Ground, Peoples Colony'),
+    zone('Faisalabad', 'North', 'Madina Town, Samanabad'),
+    zone('Faisalabad', 'South', 'Jinnah Colony, Gulistan Colony'),
+  ],
+  Multan: [
+    zone('Multan', 'Central', 'Hussain Agahi, Gulgasht'),
+    zone('Multan', 'North', 'Bosan Road, Shah Rukn-e-Alam'),
+    zone('Multan', 'South', 'Cantt, Mumtazabad'),
+  ],
+  Karachi: [
+    zone('Karachi', 'Central', 'Saddar, PECHS, Tariq Road'),
+    zone('Karachi', 'North', 'North Nazimabad, Gulshan, FB Area'),
+    zone('Karachi', 'South', 'Clifton, DHA, Defence View'),
+    zone('Karachi', 'East', 'Korangi, Malir, Landhi'),
+    zone('Karachi', 'West', 'SITE, Orangi, Baldia'),
+  ],
+  Quetta: [
+    zone('Quetta', 'Central', 'Jinnah Road, Satellite Town'),
+    zone('Quetta', 'North', 'Samungli Road, Airport Road'),
+  ],
+  Islamabad: [
+    zone('Islamabad', 'Central', 'Blue Area, F-6, F-7'),
+    zone('Islamabad', 'North', 'E-11, F-10, F-11'),
+    zone('Islamabad', 'South', 'G-9, G-10, I-8, I-9'),
+    zone('Islamabad', 'East', 'Bahria Town, DHA, PWD'),
+  ],
+  Rawalpindi: [
+    zone('Rawalpindi', 'Central', 'Saddar, Raja Bazaar'),
+    zone('Rawalpindi', 'North', 'Satellite Town, Commercial Market'),
+    zone('Rawalpindi', 'South', 'Chaklala, Westridge'),
+  ],
+  Peshawar: [
+    zone('Peshawar', 'Central', 'Saddar, University Road'),
+    zone('Peshawar', 'West', 'Hayatabad, Karkhano'),
+    zone('Peshawar', 'North', 'Gulbahar, Warsak Road'),
+  ],
+  Dubai: [
+    zone('Dubai', 'Central', 'Bur Dubai, Karama, Downtown'),
+    zone('Dubai', 'North', 'Deira, Al Qusais, Al Nahda'),
+    zone('Dubai', 'South', 'Al Barsha, JLT, Marina'),
+    zone('Dubai', 'East', 'Al Quoz, Mirdif, Silicon Oasis'),
+  ],
+  Sharjah: [
+    zone('Sharjah', 'Central', 'Al Majaz, Rolla, Al Nahda'),
+    zone('Sharjah', 'North', 'Al Khan, Al Taawun'),
+    zone('Sharjah', 'East', 'Industrial Area, Muweilah'),
+  ],
+};
+
 export const branches = [
   { id: 'LHE', code: 'LHE-01', name: 'Lahore Main Hub', type: 'Hub', city: 'Lahore', address: '42 Ferozepur Road, Gulberg III, Lahore', manager: 'Bilal Ahmed', phone: '+92 42 3577 1100', hours: '08:00 - 22:00', status: 'Active', targetShipments: 90, targetRevenue: 95000, commissionPct: 0, cash: 0 },
   { id: 'KHI', code: 'KHI-01', name: 'Karachi Port Hub', type: 'Hub', city: 'Karachi', address: 'Plot 18, SITE Area, Karachi', manager: 'Hina Siddiqui', phone: '+92 21 3255 8800', hours: '08:00 - 22:00', status: 'Active', targetShipments: 80, targetRevenue: 85000, commissionPct: 0, cash: 0 },

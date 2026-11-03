@@ -1,10 +1,9 @@
-// App-wide hooks: money display, translations, data scoping and permissions.
+// App-wide hooks: money display, data scoping and permissions.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useUI } from '../store/uiStore.js';
 import { useAuth } from '../store/authStore.js';
 import { useData } from '../store/dataStore.js';
 import { convert, fmtCompact, fmtCurrency } from '../utils/format.js';
-import { translate } from '../utils/i18n.js';
 
 /** money(amount, sourceCurrency) converts to the selected display currency and formats. */
 export function useMoney() {
@@ -13,11 +12,6 @@ export function useMoney() {
   const compact = useCallback((amount, from = 'PKR') => fmtCompact(convert(amount, from, currency), currency), [currency]);
   const value = useCallback((amount, from = 'PKR') => convert(amount, from, currency), [currency]);
   return { money, compact, value, currency };
-}
-
-export function useT() {
-  const lang = useUI((s) => s.lang);
-  return useCallback((key) => translate(key, lang), [lang]);
 }
 
 /** The branch the current view is limited to: a manager's own branch, else the switcher value. */

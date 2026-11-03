@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../store/authStore.js';
 import { useData } from '../../store/dataStore.js';
-import { useActiveBranch, useBranchFilter, useLookups, useMoney, useScopedShipments, useT } from '../../hooks/useApp.js';
+import { useActiveBranch, useBranchFilter, useLookups, useMoney, useScopedShipments } from '../../hooks/useApp.js';
 import { Card, PageHeader, StatCard, StatusBadge } from '../../components/ui/index.jsx';
 import { AreaTrend, BarsChart, CHART, DonutChart, LinesChart } from '../../components/charts/index.jsx';
 import { agingBuckets, dailySeries, invoiceBalance, merchantStats, riderStats, shipmentKpis, statusMix, topBy } from '../../data/helpers.js';
@@ -16,15 +16,14 @@ import { NDR_GROUP, STATUS } from '../../utils/status.js';
 import { stockStatus } from '../../data/operations.js';
 
 function RecentShipments({ list, limit = 6 }) {
-  const t = useT();
   const { money } = useMoney();
   const rows = useMemo(() => [...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, limit), [list, limit]);
   return (
-    <Card title={t('Recent Shipments')} bodyClass="" actions={<Link to="/shipments" className="link text-xs">{t('View all')}</Link>}>
+    <Card title="Recent Shipments" bodyClass="" actions={<Link to="/shipments" className="link text-xs">View all</Link>}>
       <div className="scroll-thin overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-surface text-xs text-ink-muted">
-            <tr>{['AWB', 'Receiver', 'Route', 'COD', t('Status')].map((h) => <th key={h} className="whitespace-nowrap px-4 py-2 text-start font-medium">{h}</th>)}</tr>
+            <tr>{['AWB', 'Receiver', 'Route', 'COD', 'Status'].map((h) => <th key={h} className="whitespace-nowrap px-4 py-2 text-start font-medium">{h}</th>)}</tr>
           </thead>
           <tbody>
             {rows.map((s) => (
@@ -44,22 +43,21 @@ function RecentShipments({ list, limit = 6 }) {
 }
 
 function AlertsPanel({ items }) {
-  const t = useT();
   return (
     <section className="card overflow-hidden border-danger/30">
       <header className="flex items-center gap-2 bg-danger px-4 py-2.5 text-white">
         <AlertTriangle size={16} aria-hidden />
-        <h2 className="text-sm font-semibold">{t('Alerts')}</h2>
+        <h2 className="text-sm font-semibold">Alerts</h2>
       </header>
       <ul className="divide-y divide-line">
         {items.map((a) => (
           <li key={a.label}>
             <Link to={a.to} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-danger-light/40">
               <span className="min-w-0">
-                <span className="block text-sm font-semibold text-danger-dark">{a.value} {t(a.label)}</span>
-                {a.hint && <span className="block truncate text-xs text-ink-muted">{t(a.hint)}</span>}
+                <span className="block text-sm font-semibold text-danger-dark">{a.value} {a.label}</span>
+                {a.hint && <span className="block truncate text-xs text-ink-muted">{a.hint}</span>}
               </span>
-              <ArrowRight size={15} className="rtl-flip shrink-0 text-ink-muted" aria-hidden />
+              <ArrowRight size={15} className="shrink-0 text-ink-muted" aria-hidden />
             </Link>
           </li>
         ))}
@@ -69,7 +67,6 @@ function AlertsPanel({ items }) {
 }
 
 function AdminDashboard() {
-  const t = useT();
   const { money, compact, value, currency } = useMoney();
   const navigate = useNavigate();
   const list = useScopedShipments();
@@ -88,40 +85,40 @@ function AdminDashboard() {
   return (
     <>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-7">
-        <StatCard label={t('Total Shipments')} value={fmtNumber(k.total)} icon={PackageCheck} onClick={() => navigate('/shipments')} />
-        <StatCard label={t('Delivered %')} value={fmtPct(k.deliveredPct)} hint={`${k.delivered} ${t('delivered')}`} icon={CheckCircle2} />
-        <StatCard label={t('RTO %')} value={fmtPct(k.rtoPct)} hint={`${k.rto} ${t('returned')}`} icon={RotateCcw} tone="danger" onClick={() => navigate('/returns')} />
-        <StatCard label={t('COD Collected')} value={compact(k.codCollected)} icon={Banknote} onClick={() => navigate('/finance')} />
-        <StatCard label={t('COD Pending')} value={compact(k.codPending)} hint={t('Undelivered + with riders')} icon={Hourglass} tone="danger" />
-        <StatCard label={t('Revenue')} value={compact(k.revenue)} hint={t('Excl. tax')} icon={CreditCard} />
-        <StatCard label={t('Profit')} value={compact(k.profit)} hint={`${t('Margin')} ${fmtPct(k.revenue ? (k.profit / k.revenue) * 100 : 0)}`} icon={TrendingUp} />
+        <StatCard label="Total Shipments" value={fmtNumber(k.total)} icon={PackageCheck} onClick={() => navigate('/shipments')} />
+        <StatCard label="Delivered %" value={fmtPct(k.deliveredPct)} hint={`${k.delivered} delivered`} icon={CheckCircle2} />
+        <StatCard label="RTO %" value={fmtPct(k.rtoPct)} hint={`${k.rto} returned`} icon={RotateCcw} tone="danger" onClick={() => navigate('/returns')} />
+        <StatCard label="COD Collected" value={compact(k.codCollected)} icon={Banknote} onClick={() => navigate('/finance')} />
+        <StatCard label="COD Pending" value={compact(k.codPending)} hint="Undelivered + with riders" icon={Hourglass} tone="danger" />
+        <StatCard label="Revenue" value={compact(k.revenue)} hint="Excl. tax" icon={CreditCard} />
+        <StatCard label="Profit" value={compact(k.profit)} hint={`Margin ${fmtPct(k.revenue ? (k.profit / k.revenue) * 100 : 0)}`} icon={TrendingUp} />
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
-        <Card title={t('Daily Shipments')} className="xl:col-span-2"><AreaTrend data={daily} dataKey="shipments" name="Shipments" /></Card>
+        <Card title="Daily Shipments" className="xl:col-span-2"><AreaTrend data={daily} dataKey="shipments" name="Shipments" /></Card>
         <AlertsPanel
           items={[
             { label: 'delayed shipments', value: k.delayed, hint: 'Past ETA and still moving', to: '/shipments' },
             { label: 'failed deliveries', value: k.failed, hint: 'Need a re-attempt decision', to: '/riders/ndr' },
-            { label: 'unreconciled deposits', value: unreconciled.length, hint: `${money(unreconciledAmt)} ${t('awaiting accountant')}`, to: '/finance/reconciliation' },
+            { label: 'unreconciled deposits', value: unreconciled.length, hint: `${money(unreconciledAmt)} awaiting accountant`, to: '/finance/reconciliation' },
             { label: 'COD with riders', value: money(k.codWithRiders), hint: 'Collected, not deposited', to: '/finance/reconciliation' },
           ]}
         />
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
-        <Card title={t('Revenue vs Cost')} className="xl:col-span-2">
+        <Card title="Revenue vs Cost" className="xl:col-span-2">
           <LinesChart data={daily} format={(v) => fmtCompact(v, currency)} series={[{ key: 'revenue', name: 'Revenue', color: CHART.yellow }, { key: 'cost', name: 'Cost', color: CHART.red }]} />
         </Card>
-        <Card title={t('Status Mix')}>
+        <Card title="Status Mix">
           <DonutChart data={mix.map((m) => ({ ...m, color: { Delivered: CHART.yellow, 'In network': CHART.slate, 'Failed / RTO / Cancelled': CHART.red, 'Booked (pending)': CHART.brown }[m.name] }))} />
         </Card>
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <Card title={t('Top Branches')}><BarsChart data={topBranches} horizontal height={220} series={[{ key: 'value', name: 'Shipments' }]} /></Card>
-        <Card title={t('Top Merchants')}><BarsChart data={topMerchants} horizontal height={220} series={[{ key: 'value', name: 'Shipments' }]} /></Card>
-        <Card title={t('Rider Performance')}><BarsChart data={riderPerf} horizontal height={220} series={[{ key: 'value', name: 'Delivered' }]} /></Card>
+        <Card title="Top Branches"><BarsChart data={topBranches} horizontal height={220} series={[{ key: 'value', name: 'Shipments' }]} /></Card>
+        <Card title="Top Merchants"><BarsChart data={topMerchants} horizontal height={220} series={[{ key: 'value', name: 'Shipments' }]} /></Card>
+        <Card title="Rider Performance"><BarsChart data={riderPerf} horizontal height={220} series={[{ key: 'value', name: 'Delivered' }]} /></Card>
       </div>
 
       <div className="mt-4"><RecentShipments list={list} /></div>
@@ -130,7 +127,6 @@ function AdminDashboard() {
 }
 
 function BranchDashboard() {
-  const t = useT();
   const { money, compact } = useMoney();
   const branchId = useActiveBranch();
   const list = useScopedShipments();
@@ -147,15 +143,15 @@ function BranchDashboard() {
   const perf = useMemo(() => topBy(list.filter((s) => s.status === STATUS.DELIVERED), (s) => s.riderId, riderName), [list, riderName]);
   return (
     <>
-      <p className="mb-3 text-sm font-medium text-ink-muted">{branchId === 'ALL' ? t('All Branches') : branchName(branchId)}</p>
+      <p className="mb-3 text-sm font-medium text-ink-muted">{branchId === 'ALL' ? 'All Branches' : branchName(branchId)}</p>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label={t('Total Shipments')} value={fmtNumber(k.total)} icon={PackageCheck} />
-        <StatCard label={t('Delivered %')} value={fmtPct(k.deliveredPct)} icon={CheckCircle2} />
+        <StatCard label="Total Shipments" value={fmtNumber(k.total)} icon={PackageCheck} />
+        <StatCard label="Delivered %" value={fmtPct(k.deliveredPct)} icon={CheckCircle2} />
         <StatCard label="Cash in hand" value={compact(cash)} hint="Collected and deposited, not yet reconciled" icon={Wallet} />
         <StatCard label="Active riders" value={`${branchRiders.filter((r) => r.status !== 'On Leave').length} / ${branchRiders.length}`} icon={Truck} />
       </div>
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
-        <Card title={t('Daily Shipments')} className="xl:col-span-2"><AreaTrend data={daily} dataKey="shipments" name="Shipments" /></Card>
+        <Card title="Daily Shipments" className="xl:col-span-2"><AreaTrend data={daily} dataKey="shipments" name="Shipments" /></Card>
         <AlertsPanel items={[
           { label: 'parcels awaiting a rider', value: atHub, to: '/riders/dispatch' },
           { label: 'failed or re-attempt', value: ndr, to: '/riders/ndr' },
@@ -165,7 +161,7 @@ function BranchDashboard() {
         />
       </div>
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
-        <Card title={t('Rider Performance')}><BarsChart data={perf} horizontal height={240} series={[{ key: 'value', name: 'Delivered' }]} /></Card>
+        <Card title="Rider Performance"><BarsChart data={perf} horizontal height={240} series={[{ key: 'value', name: 'Delivered' }]} /></Card>
         <div className="xl:col-span-2"><RecentShipments list={list} /></div>
       </div>
     </>
@@ -173,7 +169,6 @@ function BranchDashboard() {
 }
 
 function AccountantDashboard() {
-  const t = useT();
   const { money, compact } = useMoney();
   const navigate = useNavigate();
   const { shipments, riderDeposits, payouts, invoices, expenses } = useData();
@@ -194,7 +189,7 @@ function AccountantDashboard() {
   return (
     <>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label={t('COD Collected')} value={compact(k.codCollected)} icon={Banknote} onClick={() => navigate('/finance')} />
+        <StatCard label="COD Collected" value={compact(k.codCollected)} icon={Banknote} onClick={() => navigate('/finance')} />
         <StatCard label="Payable to merchants" value={compact(k.codReconciled)} hint="Reconciled COD" icon={HandCoins} onClick={() => navigate('/finance/payouts')} />
         <StatCard label="Receivable" value={compact(sum(openInv, invoiceBalance))} hint={`${openInv.length} open invoices`} icon={Receipt} onClick={() => navigate('/finance/invoices')} />
         <StatCard label="Net profit" value={compact(k.profit - totalExpense)} hint="Gross profit less expenses" icon={TrendingUp} tone={k.profit - totalExpense < 0 ? 'danger' : 'default'} onClick={() => navigate('/finance/ledgers')} />
@@ -228,7 +223,6 @@ function AccountantDashboard() {
 }
 
 function MerchantDashboard() {
-  const t = useT();
   const navigate = useNavigate();
   const { money, compact } = useMoney();
   const user = useAuth((s) => s.user);
@@ -241,19 +235,19 @@ function MerchantDashboard() {
   return (
     <>
       <div className="mb-4 flex flex-wrap gap-2">
-        <Link to="/shipments/new" className="btn-primary"><PackagePlus size={16} aria-hidden /> {t('Create Shipment')}</Link>
+        <Link to="/shipments/new" className="btn-primary"><PackagePlus size={16} aria-hidden /> Create Shipment</Link>
         <Link to="/portal/payouts" className="btn-outline"><HandCoins size={16} aria-hidden /> Request payout</Link>
         <Link to="/portal/tickets" className="btn-outline">Raise ticket</Link>
       </div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label={t('Total Shipments')} value={fmtNumber(k.total)} icon={PackageCheck} onClick={() => navigate('/shipments')} />
-        <StatCard label={t('Delivered %')} value={fmtPct(k.deliveredPct)} hint={`RTO ${fmtPct(k.rtoPct)}`} icon={CheckCircle2} />
+        <StatCard label="Total Shipments" value={fmtNumber(k.total)} icon={PackageCheck} onClick={() => navigate('/shipments')} />
+        <StatCard label="Delivered %" value={fmtPct(k.deliveredPct)} hint={`RTO ${fmtPct(k.rtoPct)}`} icon={CheckCircle2} />
         <StatCard label="Payable COD" value={compact(stats.payable)} hint={`${compact(stats.inTransit)} in collection`} icon={Wallet} onClick={() => navigate('/portal/cod')} />
         <StatCard label="Outstanding invoices" value={compact(stats.outstanding)} icon={Receipt} tone={stats.outstanding > 0 ? 'danger' : 'default'} onClick={() => navigate('/portal/invoices')} />
       </div>
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
-        <Card title={t('Daily Shipments')} className="xl:col-span-2"><AreaTrend data={daily} dataKey="shipments" name="Shipments" /></Card>
-        <Card title={t('Status Mix')}><DonutChart data={mix} /></Card>
+        <Card title="Daily Shipments" className="xl:col-span-2"><AreaTrend data={daily} dataKey="shipments" name="Shipments" /></Card>
+        <Card title="Status Mix"><DonutChart data={mix} /></Card>
       </div>
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         <div className="xl:col-span-2"><RecentShipments list={stats.list} /></div>
@@ -275,7 +269,6 @@ function MerchantDashboard() {
 }
 
 function RiderDashboard() {
-  const t = useT();
   const navigate = useNavigate();
   const user = useAuth((s) => s.user);
   const { riders, shipments, codTransactions } = useData();
@@ -286,14 +279,14 @@ function RiderDashboard() {
   const daily = useMemo(() => dailySeries(mine, 14), [mine]);
   return (
     <>
-      <Link to="/rider-app" className="btn-primary mb-4 w-full sm:w-auto"><Truck size={16} aria-hidden /> Start {t("Today's Run")}</Link>
+      <Link to="/rider-app" className="btn-primary mb-4 w-full sm:w-auto"><Truck size={16} aria-hidden /> Start Today's Run</Link>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label={t('Deliveries')} value={stats.active} hint="Assigned today" icon={Truck} onClick={() => navigate('/rider-app')} />
-        <StatCard label={t('Pickups')} value={pickups.length} icon={PackageOpen} onClick={() => navigate('/rider-app')} />
-        <StatCard label={t('Cash in hand')} value={fmtCurrency(stats.cash, rider.currency)} icon={Wallet} tone={stats.cash > 0 ? 'danger' : 'default'} onClick={() => navigate('/rider-app')} />
+        <StatCard label="Deliveries" value={stats.active} hint="Assigned today" icon={Truck} onClick={() => navigate('/rider-app')} />
+        <StatCard label="Pickups" value={pickups.length} icon={PackageOpen} onClick={() => navigate('/rider-app')} />
+        <StatCard label="Cash in hand" value={fmtCurrency(stats.cash, rider.currency)} icon={Wallet} tone={stats.cash > 0 ? 'danger' : 'default'} onClick={() => navigate('/rider-app')} />
         <StatCard label="Success rate" value={fmtPct(stats.successPct)} hint={`${stats.delivered} delivered`} icon={CheckCircle2} />
       </div>
-      <div className="mt-4"><Card title={t('Daily Shipments')}><AreaTrend data={daily} dataKey="shipments" name="Parcels" height={220} /></Card></div>
+      <div className="mt-4"><Card title="Daily Shipments"><AreaTrend data={daily} dataKey="shipments" name="Parcels" height={220} /></Card></div>
     </>
   );
 }
@@ -349,12 +342,11 @@ const VIEWS = {
 };
 
 export function Dashboard() {
-  const t = useT();
   const user = useAuth((s) => s.user);
   const View = VIEWS[user.role];
   return (
     <div>
-      <PageHeader title={`${t('Welcome back')}, ${user.name.split(' ')[0]}`} subtitle={fmtDate(new Date())} />
+      <PageHeader title={`Welcome back, ${user.name.split(' ')[0]}`} subtitle={fmtDate(new Date())} />
       <View />
     </div>
   );

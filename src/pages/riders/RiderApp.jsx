@@ -6,7 +6,6 @@ import { EmptyState, Modal, StatusBadge, Tabs } from '../../components/ui/index.
 import { useAuth } from '../../store/authStore.js';
 import { useData } from '../../store/dataStore.js';
 import { toast } from '../../store/uiStore.js';
-import { useT } from '../../hooks/useApp.js';
 import { NDR_REASONS, STATUS } from '../../utils/status.js';
 import { fmtCurrency, sum } from '../../utils/format.js';
 
@@ -55,11 +54,13 @@ function DeliverModal({ shipment: s, onClose }) {
   const [signed, setSigned] = useState(false);
   const [photo, setPhoto] = useState(null);
   const [cash, setCash] = useState(false);
+  const [toPayCash, setToPayCash] = useState(false);
   const [receivedBy, setReceivedBy] = useState(s.receiver.name);
 
   const proofOk = method === 'OTP' ? otp === demoOtp(s.awb) : method === 'Signature' ? signed : !!photo;
   const needsCash = s.cod > 0;
-  const canSubmit = proofOk && (!needsCash || cash) && receivedBy.trim();
+  const needsToPay = s.toPay > 0;
+  const canSubmit = proofOk && (!needsCash || cash) && (!needsToPay || toPayCash) && receivedBy.trim();
   const submit = () => {
     const { ok } = changeStatus(s.id, STATUS.DELIVERED, { method, receivedBy: receivedBy.trim(), note: `Delivered to ${receivedBy.trim()} (${method})` });
     if (ok) toast.success(`${s.awb} delivered${needsCash ? `, ${fmtCurrency(s.cod, s.currency)} collected` : ''}`);
@@ -103,6 +104,12 @@ function DeliverModal({ shipment: s, onClose }) {
           <label className={clsx('flex items-center gap-3 rounded-lg border-2 p-3', cash ? 'border-primary-hover bg-primary-light' : 'border-danger bg-danger-light')}>
             <input type="checkbox" className="h-5 w-5 accent-primary-hover" checked={cash} onChange={(e) => setCash(e.target.checked)} />
             <span className="text-sm font-bold">Collected COD: <span className="text-danger-dark">{fmtCurrency(s.cod, s.currency)}</span></span>
+          </label>
+        )}
+        {needsToPay && (
+          <label className={clsx('flex items-center gap-3 rounded-lg border-2 p-3', toPayCash ? 'border-primary-hover bg-primary-light' : 'border-danger bg-danger-light')}>
+            <input type="checkbox" className="h-5 w-5 accent-primary-hover" checked={toPayCash} onChange={(e) => setToPayCash(e.target.checked)} />
+            <span className="text-sm font-bold">Collected delivery charges (To Pay): <span className="text-danger-dark">{fmtCurrency(s.toPay, s.currency)}</span></span>
           </label>
         )}
       </div>
@@ -154,7 +161,6 @@ function DepositModal({ rider, cash, onClose }) {
 }
 
 function StopCard({ s, kind, onDeliver, onFail, onPicked }) {
-  const t = useT();
   const person = kind === 'pickup' ? s.sender : s.receiver;
   const phone = person.phone.replace(/\s/g, '');
   const map = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${person.address}, ${person.city}`)}`;
@@ -167,14 +173,15 @@ function StopCard({ s, kind, onDeliver, onFail, onPicked }) {
       <p className="font-semibold">{person.name}</p>
       <p className="text-sm text-gray-700">{person.address}, {person.city}</p>
       {kind === 'delivery' && s.cod > 0 && <p className="mt-1 text-base font-black text-danger">COD {fmtCurrency(s.cod, s.currency)}</p>}
+      {kind === 'delivery' && s.toPay > 0 && <p className="mt-1 text-base font-black text-danger">TO PAY {fmtCurrency(s.toPay, s.currency)}</p>}
       {s.notes && <p className="mt-1 rounded bg-primary-light px-2 py-1 text-xs">{s.notes}</p>}
       <div className="mt-3 grid grid-cols-2 gap-2">
         <a href={`tel:${phone}`} className="btn-outline"><Phone size={15} aria-hidden /> Call</a>
         <a href={map} target="_blank" rel="noreferrer" className="btn-outline"><MapPin size={15} aria-hidden /> Map</a>
         {kind === 'delivery' ? (
           <>
-            <button type="button" className="btn-primary" onClick={() => onDeliver(s)} disabled={s.status !== STATUS.OFD}><CheckCircle2 size={15} aria-hidden /> {t('Mark delivered')}</button>
-            <button type="button" className="btn-danger" onClick={() => onFail(s)} disabled={s.status !== STATUS.OFD}><XCircle size={15} aria-hidden /> {t('Mark failed')}</button>
+            <button type="button" className="btn-primary" onClick={() => onDeliver(s)} disabled={s.status !== STATUS.OFD}><CheckCircle2 size={15} aria-hidden /> Mark delivered</button>
+            <button type="button" className="btn-danger" onClick={() => onFail(s)} disabled={s.status !== STATUS.OFD}><XCircle size={15} aria-hidden /> Mark failed</button>
           </>
         ) : (
           <button type="button" className="btn-primary col-span-2" onClick={() => onPicked(s)}><PackageOpen size={15} aria-hidden /> Picked up</button>
@@ -185,7 +192,6 @@ function StopCard({ s, kind, onDeliver, onFail, onPicked }) {
 }
 
 export function RiderApp() {
-  const t = useT();
   const user = useAuth((s) => s.user);
   const { riders, shipments, codTransactions, changeStatus } = useData();
   const riderId = user.riderId || riders[0].id;
@@ -213,8 +219,8 @@ export function RiderApp() {
         <p className="text-xs font-medium">{rider.zone}</p>
         <h1 className="text-lg font-bold">{rider.name}</h1>
         <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-          <div className="rounded-lg bg-white/70 p-2"><p className="text-lg font-black">{deliveries.length}</p><p className="text-[11px]">{t('Deliveries')}</p></div>
-          <div className="rounded-lg bg-white/70 p-2"><p className="text-lg font-black">{pickups.length}</p><p className="text-[11px]">{t('Pickups')}</p></div>
+          <div className="rounded-lg bg-white/70 p-2"><p className="text-lg font-black">{deliveries.length}</p><p className="text-[11px]">Deliveries</p></div>
+          <div className="rounded-lg bg-white/70 p-2"><p className="text-lg font-black">{pickups.length}</p><p className="text-[11px]">Pickups</p></div>
           <div className="rounded-lg bg-white/70 p-2"><p className="truncate text-sm font-black leading-7">{toCollect.toLocaleString('en-US')}</p><p className="text-[11px]">To collect</p></div>
         </div>
       </section>
@@ -222,13 +228,13 @@ export function RiderApp() {
         <div className="flex items-center gap-2.5">
           <span className="rounded-lg bg-danger-light p-2 text-danger"><Wallet size={18} aria-hidden /></span>
           <div>
-            <p className="text-xs text-ink-muted">{t('Cash in hand')} ({cashTxns.length} parcels)</p>
+            <p className="text-xs text-ink-muted">Cash in hand ({cashTxns.length} parcels)</p>
             <p className="font-black text-danger">{fmtCurrency(cash, rider.currency)}</p>
           </div>
         </div>
-        <button type="button" className="btn-primary" disabled={!cash} onClick={() => setDeposit(true)}><Banknote size={15} aria-hidden /> {t('Deposit cash')}</button>
+        <button type="button" className="btn-primary" disabled={!cash} onClick={() => setDeposit(true)}><Banknote size={15} aria-hidden /> Deposit cash</button>
       </section>
-      <Tabs tabs={[{ value: 'deliveries', label: t('Deliveries'), count: deliveries.length }, { value: 'pickups', label: t('Pickups'), count: pickups.length }]} value={tab} onChange={setTab} />
+      <Tabs tabs={[{ value: 'deliveries', label: 'Deliveries', count: deliveries.length }, { value: 'pickups', label: 'Pickups', count: pickups.length }]} value={tab} onChange={setTab} />
       <ul className="space-y-3">
         {tab === 'deliveries' && deliveries.map((s) => <StopCard key={s.id} s={s} kind="delivery" onDeliver={setDeliver} onFail={setFail} />)}
         {tab === 'pickups' && pickups.map((s) => <StopCard key={s.id} s={s} kind="pickup" onPicked={picked} />)}

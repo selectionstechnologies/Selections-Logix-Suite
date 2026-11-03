@@ -5,7 +5,7 @@ import { Bell, ChevronRight, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search
 import { useAuth } from '../../store/authStore.js';
 import { useUI, toast } from '../../store/uiStore.js';
 import { useData } from '../../store/dataStore.js';
-import { useActiveBranch, useCan, useT } from '../../hooks/useApp.js';
+import { useActiveBranch, useCan } from '../../hooks/useApp.js';
 import { navFor, labelForPath } from '../../routes/index.jsx';
 import { ROLE_LABELS } from '../../data/people.js';
 import { CURRENCIES, fmtTimeAgo } from '../../utils/format.js';
@@ -26,7 +26,6 @@ export function Logo({ compact, className }) {
 }
 
 function Sidebar({ open, onClose }) {
-  const t = useT();
   const can = useCan();
   const role = useAuth((s) => s.user?.role);
   const collapsedPref = useUI((s) => s.collapsed);
@@ -43,7 +42,7 @@ function Sidebar({ open, onClose }) {
           collapsed ? 'lg:w-[68px]' : 'lg:w-60',
           'w-64',
           // Off-canvas only below lg; on desktop the sidebar is always in the page flow.
-          !open && 'max-lg:ltr:-translate-x-full max-lg:rtl:translate-x-full',
+          !open && 'max-lg:-translate-x-full',
         )}
         aria-label="Main navigation"
       >
@@ -54,7 +53,7 @@ function Sidebar({ open, onClose }) {
         <nav className="scroll-thin flex-1 space-y-4 overflow-y-auto px-2 py-3">
           {nav.map(({ group, items }) => (
             <div key={group}>
-              {!collapsed && <p className="mb-1 px-2.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">{t(group)}</p>}
+              {!collapsed && <p className="mb-1 px-2.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">{group}</p>}
               <ul className="space-y-0.5">
                 {items.map(({ path, nav: item }) => (
                   <li key={path}>
@@ -62,7 +61,7 @@ function Sidebar({ open, onClose }) {
                       to={path}
                       end
                       onClick={onClose}
-                      title={collapsed ? t(item.label) : undefined}
+                      title={collapsed ? item.label : undefined}
                       className={({ isActive }) => clsx(
                         'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors',
                         collapsed && 'justify-center',
@@ -70,8 +69,8 @@ function Sidebar({ open, onClose }) {
                       )}
                     >
                       <item.icon size={17} className="shrink-0" aria-hidden />
-                      {!collapsed && <span className="truncate">{t(item.label)}</span>}
-                      {collapsed && <span className="sr-only">{t(item.label)}</span>}
+                      {!collapsed && <span className="truncate">{item.label}</span>}
+                      {collapsed && <span className="sr-only">{item.label}</span>}
                     </NavLink>
                   </li>
                 ))}
@@ -80,7 +79,7 @@ function Sidebar({ open, onClose }) {
           ))}
         </nav>
         <button type="button" onClick={toggle} className="hidden items-center gap-2 border-t border-line px-4 py-3 text-xs text-ink-muted hover:text-ink lg:flex" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
-          {collapsed ? <PanelLeftOpen size={16} className="rtl-flip" /> : <><PanelLeftClose size={16} className="rtl-flip" /> Collapse</>}
+          {collapsed ? <PanelLeftOpen size={16} /> : <><PanelLeftClose size={16} /> Collapse</>}
         </button>
       </aside>
     </>
@@ -102,7 +101,6 @@ function useOutside(onOutside) {
 
 /** Ctrl/Cmd+K search across shipments and, depending on role, customers, riders, tickets. */
 function GlobalSearch() {
-  const t = useT();
   const can = useCan();
   const navigate = useNavigate();
   const user = useAuth((s) => s.user);
@@ -151,13 +149,13 @@ function GlobalSearch() {
         onChange={(e) => { setQ(e.target.value); setOpen(true); setCursor(0); }}
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
-        placeholder={t('Search AWB, customer, rider...')}
+        placeholder="Search AWB, customer, rider..."
         aria-label="Global search"
         className="input !py-1.5 !ps-8"
       />
       {open && q.trim().length >= 2 && (
         <div className="absolute z-30 mt-1 max-h-96 w-full min-w-[280px] overflow-y-auto rounded-lg border border-line bg-white p-1 shadow-pop">
-          {!results.length && <p className="px-3 py-4 text-center text-sm text-ink-muted">{t('No results')}</p>}
+          {!results.length && <p className="px-3 py-4 text-center text-sm text-ink-muted">No results</p>}
           {results.map((r, i) => (
             <button key={`${r.type}-${r.key}`} type="button" onMouseEnter={() => setCursor(i)} onClick={() => go(r)} className={clsx('flex w-full items-center justify-between gap-3 rounded px-3 py-2 text-start', i === cursor && 'bg-primary-light')}>
               <span className="min-w-0">
@@ -174,7 +172,6 @@ function GlobalSearch() {
 }
 
 function NotificationBell() {
-  const t = useT();
   const navigate = useNavigate();
   const notifications = useData((s) => s.notifications);
   const updateItem = useData((s) => s.updateItem);
@@ -185,15 +182,15 @@ function NotificationBell() {
   const unread = notifications.filter((n) => !n.read).length;
   return (
     <div className="relative" ref={ref}>
-      <button type="button" className="btn-ghost btn-sm relative !p-2" onClick={() => setOpen((o) => !o)} aria-label={`${t('Notifications')}: ${unread}`} aria-expanded={open}>
+      <button type="button" className="btn-ghost btn-sm relative !p-2" onClick={() => setOpen((o) => !o)} aria-label={`Notifications: ${unread}`} aria-expanded={open}>
         <Bell size={18} aria-hidden />
         {unread > 0 && <span className="absolute -end-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold text-white">{unread}</span>}
       </button>
       {open && (
         <div className="fixed inset-x-3 top-14 z-30 rounded-xl border border-line bg-white shadow-pop sm:absolute sm:inset-x-auto sm:end-0 sm:top-auto sm:mt-1 sm:w-80">
           <div className="flex items-center justify-between border-b border-line px-3 py-2">
-            <p className="text-sm font-semibold">{t('Notifications')}</p>
-            <button type="button" className="text-xs text-ink-muted hover:text-ink" onClick={() => setValue('notifications', notifications.map((n) => ({ ...n, read: true })), 'Notification', 'Marked all read')}>{t('Mark all read')}</button>
+            <p className="text-sm font-semibold">Notifications</p>
+            <button type="button" className="text-xs text-ink-muted hover:text-ink" onClick={() => setValue('notifications', notifications.map((n) => ({ ...n, read: true })), 'Notification', 'Marked all read')}>Mark all read</button>
           </div>
           <div className="scroll-thin max-h-80 overflow-y-auto">
             {notifications.slice(0, 8).map((n) => (
@@ -215,7 +212,7 @@ function NotificationBell() {
               </button>
             ))}
           </div>
-          <Link to="/notifications" onClick={() => setOpen(false)} className="block border-t border-line px-3 py-2 text-center text-xs font-medium hover:bg-surface">{t('View all')}</Link>
+          <Link to="/notifications" onClick={() => setOpen(false)} className="block border-t border-line px-3 py-2 text-center text-xs font-medium hover:bg-surface">View all</Link>
         </div>
       )}
     </div>
@@ -223,7 +220,6 @@ function NotificationBell() {
 }
 
 function ProfileMenu() {
-  const t = useT();
   const { currency, setCurrency, setBranch: pickBranch } = useUI();
   const branches = useData((s) => s.branches);
   const activeBranch = useActiveBranch();
@@ -236,11 +232,11 @@ function ProfileMenu() {
   const ref = useOutside(() => setOpen(false));
   return (
     <div className="relative" ref={ref}>
-      <button type="button" className="flex items-center gap-2 rounded-lg p-1 hover:bg-gray-100" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label={t('Profile')}>
+      <button type="button" className="flex items-center gap-2 rounded-lg p-1 hover:bg-gray-100" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label="Profile">
         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-bold">{user.name.split(' ').map((p) => p[0]).slice(0, 2).join('')}</span>
         <span className="hidden text-start xl:block">
           <span className="block text-xs font-semibold leading-tight">{user.name}</span>
-          <span className="block text-[11px] leading-tight text-ink-muted">{t(ROLE_LABELS[user.role])}</span>
+          <span className="block text-[11px] leading-tight text-ink-muted">{ROLE_LABELS[user.role]}</span>
         </span>
       </button>
       {open && (
@@ -257,12 +253,12 @@ function ProfileMenu() {
             <select aria-label="Currency (mobile)" className="input !py-1.5 !text-xs" value={currency} onChange={(e) => setCurrency(e.target.value)}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select>
             {!['merchant', 'rider'].includes(user.role) && (
               <select aria-label="Branch (mobile)" className="input !py-1.5 !text-xs" value={activeBranch} disabled={user.role === 'branch_manager'} onChange={(e) => pickBranch(e.target.value)}>
-                <option value="ALL">{t('All Branches')}</option>
+                <option value="ALL">All Branches</option>
                 {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
             )}
           </div>
-          <p className="mt-1 border-t border-line px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">{t('Switch role (demo)')}</p>
+          <p className="mt-1 border-t border-line px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Switch role (demo)</p>
           {Object.entries(ROLE_LABELS).map(([role, label]) => (
             <button
               key={role}
@@ -270,11 +266,11 @@ function ProfileMenu() {
               onClick={() => { loginAs(role); setBranch('ALL'); setOpen(false); navigate('/'); toast.info(`Now signed in as ${label}`); }}
               className={clsx('block w-full rounded px-2.5 py-1.5 text-start text-sm hover:bg-primary-light', user.role === role && 'bg-primary-light font-medium')}
             >
-              {t(label)}
+              {label}
             </button>
           ))}
           <button type="button" onClick={() => { logout(); navigate('/login'); }} className="mt-1 flex w-full items-center gap-2 border-t border-line px-2.5 pb-1 pt-2 text-start text-sm text-danger hover:text-danger-hover">
-            <LogOut size={15} className="rtl-flip" aria-hidden /> {t('Sign out')}
+            <LogOut size={15} aria-hidden /> Sign out
           </button>
         </div>
       )}
@@ -283,10 +279,9 @@ function ProfileMenu() {
 }
 
 function Topbar({ onMenu }) {
-  const t = useT();
   const user = useAuth((s) => s.user);
   const branches = useData((s) => s.branches);
-  const { lang, setLang, currency, setCurrency, setBranch } = useUI();
+  const { currency, setCurrency, setBranch } = useUI();
   const activeBranch = useActiveBranch();
   const showBranch = !['merchant', 'rider'].includes(user.role);
   return (
@@ -302,14 +297,13 @@ function Topbar({ onMenu }) {
             disabled={user.role === 'branch_manager'}
             onChange={(e) => setBranch(e.target.value)}
           >
-            <option value="ALL">{t('All Branches')}</option>
+            <option value="ALL">All Branches</option>
             {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         )}
         <select aria-label="Currency" className="input hidden !w-auto !py-1.5 !text-xs sm:block" value={currency} onChange={(e) => setCurrency(e.target.value)}>
           {CURRENCIES.map((c) => <option key={c}>{c}</option>)}
         </select>
-        <button type="button" className="btn-outline btn-sm" onClick={() => setLang(lang === 'en' ? 'ur' : 'en')} aria-label="Toggle language">{lang === 'en' ? 'اردو' : 'EN'}</button>
         <NotificationBell />
         <ProfileMenu />
       </div>
@@ -318,7 +312,6 @@ function Topbar({ onMenu }) {
 }
 
 function Breadcrumbs() {
-  const t = useT();
   const { pathname } = useLocation();
   const parts = pathname.split('/').filter(Boolean);
   if (!parts.length) return null;
@@ -328,11 +321,11 @@ function Breadcrumbs() {
   });
   return (
     <nav aria-label="Breadcrumb" className="mb-3 flex flex-wrap items-center gap-1 text-xs text-ink-muted print:hidden">
-      <Link to="/" className="hover:text-ink">{t('Home')}</Link>
+      <Link to="/" className="hover:text-ink">Home</Link>
       {crumbs.map((c, i) => (
         <span key={c.path} className="flex items-center gap-1">
-          <ChevronRight size={12} className="rtl-flip" aria-hidden />
-          {i === crumbs.length - 1 || !c.hasRoute ? <span className={i === crumbs.length - 1 ? 'text-ink' : ''}>{t(c.label)}</span> : <Link to={c.path} className="hover:text-ink">{t(c.label)}</Link>}
+          <ChevronRight size={12} aria-hidden />
+          {i === crumbs.length - 1 || !c.hasRoute ? <span className={i === crumbs.length - 1 ? 'text-ink' : ''}>{c.label}</span> : <Link to={c.path} className="hover:text-ink">{c.label}</Link>}
         </span>
       ))}
     </nav>

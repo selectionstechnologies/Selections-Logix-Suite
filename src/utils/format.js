@@ -55,3 +55,22 @@ export const uid = (prefix = 'ID') => `${prefix}-${Date.now().toString(36).toUpp
 
 /** Fill {variable} placeholders in a notification template. */
 export const fillTemplate = (body, vars) => body.replace(/\{(\w+)\}/g, (m, k) => (vars[k] !== undefined ? vars[k] : m));
+
+// Pakistani CNIC: 13 digits written 12345-1234567-1.
+export const CNIC_PATTERN = /^\d{5}-\d{7}-\d$/;
+
+/** Inserts the dashes while the CNIC is typed. */
+export function formatCnic(raw = '') {
+  const d = String(raw).replace(/\D/g, '').slice(0, 13);
+  return [d.slice(0, 5), d.slice(5, 12), d.slice(12)].filter(Boolean).join('-');
+}
+
+/** 35202-1234567-1 -> 35202-*******-1 */
+export const maskNationalId = (id = '') => {
+  const parts = String(id).split('-');
+  if (parts.length < 3) return id || '-';
+  return parts.map((p, i) => (i === 0 || i === parts.length - 1 ? p : '*'.repeat(p.length))).join('-');
+};
+
+/** Last 10 digits, so +92 300 1234567 and 03001234567 compare equal. */
+export const phoneKey = (p = '') => String(p).replace(/\D/g, '').slice(-10);

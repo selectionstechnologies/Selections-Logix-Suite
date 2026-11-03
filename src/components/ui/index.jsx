@@ -8,13 +8,11 @@ import { subDays } from 'date-fns';
 import { useConfirmStore, useToasts, toast } from '../../store/uiStore.js';
 import { statusTone } from '../../utils/status.js';
 import { fmtDateTime, isoDay } from '../../utils/format.js';
-import { useT } from '../../hooks/useApp.js';
 
 export function StatusBadge({ status, className }) {
-  const t = useT();
   return (
     <span className={clsx('inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium', statusTone(status), className)}>
-      {t(status)}
+      {status}
     </span>
   );
 }
@@ -290,7 +288,6 @@ export function Stepper({ steps, current, onStepClick, failed }) {
 const BAD_EVENTS = ['Failed Attempt', 'Return to Origin', 'Returned', 'Cancelled'];
 
 export function Timeline({ events }) {
-  const t = useT();
   const ordered = [...events].reverse();
   return (
     <ol className="relative">
@@ -303,7 +300,7 @@ export function Timeline({ events }) {
               {bad ? <X size={12} aria-hidden /> : <Check size={12} aria-hidden />}
             </span>
             <div className="min-w-0">
-              <p className={clsx('text-sm font-semibold', bad && 'text-danger-dark')}>{t(e.status)}</p>
+              <p className={clsx('text-sm font-semibold', bad && 'text-danger-dark')}>{e.status}</p>
               {e.note && <p className="text-sm text-gray-700">{e.note}</p>}
               <p className="text-xs text-ink-muted">{fmtDateTime(e.at)}{e.location ? ` - ${e.location}` : ''}</p>
             </div>

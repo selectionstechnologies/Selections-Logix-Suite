@@ -68,11 +68,11 @@ export function PrintPreview({ open, onClose, title, filename = 'document', size
           </>
         )}
       >
-        <div className="overflow-auto rounded-lg bg-gray-100 p-4" dir="ltr">
+        <div className="overflow-auto rounded-lg bg-gray-100 p-4">
           <div ref={previewRef} className="mx-auto flex w-fit flex-col gap-4 bg-gray-100">{children}</div>
         </div>
       </Modal>
-      {open && printRoot && createPortal(<div dir="ltr">{children}</div>, printRoot)}
+      {open && printRoot && createPortal(<div>{children}</div>, printRoot)}
     </>
   );
 }
@@ -137,6 +137,7 @@ export function ShippingLabel({ shipment: s, size = '4x6' }) {
             <p className="font-bold uppercase text-gray-500">Deliver to</p>
             <p className="font-bold">{s.receiver.name}</p>
             <p>{s.receiver.address}, {s.receiver.city}</p>
+            {s.receiver.zone && <p className="font-semibold">{s.receiver.zone}</p>}
             <p>{s.receiver.phone}</p>
           </div>
           <div>
@@ -153,11 +154,11 @@ export function ShippingLabel({ shipment: s, size = '4x6' }) {
       </div>
       <div className="grid grid-cols-3 gap-1 border-t border-gray-300 pt-2">
         <div><p className="text-gray-500">Weight</p><p className="font-bold">{s.chargeableWeight ?? s.parcel.weight} kg</p></div>
-        <div><p className="text-gray-500">Pieces</p><p className="font-bold">{s.parcel.pieces}</p></div>
+        <div><p className="text-gray-500">Pieces</p><p className="font-bold">{s.pieceNo ? `${s.pieceNo} / ${s.parcel.pieces}` : s.parcel.pieces}</p></div>
         <div><p className="text-gray-500">Ref</p><p className="truncate font-bold">{s.courier.split(' ')[0]}</p></div>
       </div>
-      <div className={clsx('mt-2 rounded border-2 py-1.5 text-center font-black', s.cod > 0 ? 'border-[#DC2626] text-[#DC2626]' : 'border-gray-300 text-gray-700')}>
-        <span className={size === 'a4' ? 'text-3xl' : 'text-xl'}>{s.cod > 0 ? `COD ${fmtCurrency(s.cod, s.currency)}` : 'PREPAID - NO COD'}</span>
+      <div className={clsx('mt-2 rounded border-2 py-1.5 text-center font-black', s.cod > 0 || s.toPay > 0 ? 'border-[#DC2626] text-[#DC2626]' : 'border-gray-300 text-gray-700')}>
+        <span className={size === 'a4' ? 'text-3xl' : 'text-xl'}>{s.cod > 0 ? `COD ${fmtCurrency(s.cod, s.currency)}` : s.toPay > 0 ? `TO PAY ${fmtCurrency(s.toPay, s.currency)}` : 'PREPAID - NO COD'}</span>
       </div>
     </Sheet>
   );

@@ -1,4 +1,4 @@
-// UI preferences (language, currency, branch, sidebar), toasts and the confirm dialog.
+// UI preferences (currency, branch, sidebar), toasts and the confirm dialog.
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { safeStorage } from './storage.js';
@@ -7,11 +7,9 @@ import { uid } from '../utils/format.js';
 export const useUI = create(
   persist(
     (set) => ({
-      lang: 'en',
       currency: 'PKR',
       branchId: 'ALL',
       collapsed: false,
-      setLang: (lang) => set({ lang }),
       setCurrency: (currency) => set({ currency }),
       setBranch: (branchId) => set({ branchId }),
       toggleCollapsed: () => set((s) => ({ collapsed: !s.collapsed })),

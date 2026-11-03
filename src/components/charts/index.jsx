@@ -33,7 +33,7 @@ const legendStyle = { fontSize: 12, color: '#374151' };
 export function BarsChart({ data, xKey = 'name', series, height = 260, format, horizontal, stacked }) {
   if (!data?.length) return <div style={{ height }}><Empty /></div>;
   return (
-    <div style={{ height }} dir="ltr">
+    <div style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} layout={horizontal ? 'vertical' : 'horizontal'} margin={{ top: 8, right: 12, left: 0, bottom: 0 }} barGap={2} barCategoryGap="28%">
           <CartesianGrid stroke={GRID} vertical={!!horizontal} horizontal={!horizontal} />
@@ -62,7 +62,7 @@ export function BarsChart({ data, xKey = 'name', series, height = 260, format, h
 export function LinesChart({ data, xKey = 'label', series, height = 260, format }) {
   if (!data?.length) return <div style={{ height }}><Empty /></div>;
   return (
-    <div style={{ height }} dir="ltr">
+    <div style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
           <CartesianGrid stroke={GRID} vertical={false} />
@@ -82,7 +82,7 @@ export function LinesChart({ data, xKey = 'label', series, height = 260, format 
 export function AreaTrend({ data, xKey = 'label', dataKey, name, height = 260, format, color = CHART.yellow }) {
   if (!data?.length) return <div style={{ height }}><Empty /></div>;
   return (
-    <div style={{ height }} dir="ltr">
+    <div style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
           <CartesianGrid stroke={GRID} vertical={false} />
@@ -100,7 +100,7 @@ export function DonutChart({ data, height = 260, format, colors = SERIES }) {
   if (!data?.length) return <div style={{ height }}><Empty /></div>;
   const total = data.reduce((a, d) => a + d.value, 0);
   return (
-    <div style={{ height }} dir="ltr">
+    <div style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie data={data} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="82%" paddingAngle={2} stroke="#fff" strokeWidth={2}>

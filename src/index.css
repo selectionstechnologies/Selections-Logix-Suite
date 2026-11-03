@@ -5,7 +5,6 @@
 @layer base {
   html { -webkit-text-size-adjust: 100%; }
   body { @apply bg-surface text-ink antialiased; font-size: 14px; }
-  [dir='rtl'] body { font-family: 'Noto Naskh Arabic', Inter, system-ui, sans-serif; }
   :focus-visible { outline: 2px solid #111827; outline-offset: 2px; border-radius: 4px; }
   h1, h2, h3 { @apply font-semibold; }
 }
@@ -28,7 +27,6 @@
 @layer utilities {
   .scroll-thin::-webkit-scrollbar { width: 6px; height: 6px; }
   .scroll-thin::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 6px; }
-  [dir='rtl'] .rtl-flip { transform: scaleX(-1); }
 }
 
 /* Printing: the app is hidden and only the portal copy of the document is printed. */

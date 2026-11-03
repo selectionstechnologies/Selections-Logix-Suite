@@ -73,6 +73,12 @@ export const useData = create(
         const days = { 'same-day': 1, 'next-day': 2, economy: 4, international: 7 }[service];
         const created = nowISO();
         const a = actor();
+        // Bulk import sends no payment type: COD if an amount is set, otherwise prepaid.
+        const paymentType = form.paymentType || (Number(form.cod) > 0 ? 'cod' : 'prepaid');
+        const PAYMENT_STATUS = { cash: 'Paid in cash', online: 'Paid online', credit: 'Billed to account', 'cod-deduct': 'Deduct from COD' };
+        const payment = paymentType === 'topay'
+          ? { method: 'topay', status: 'Due on delivery', amount: q.total }
+          : form.payment?.method ? { ...form.payment, amount: q.total, status: PAYMENT_STATUS[form.payment.method] || 'Paid' } : null;
         const shipment = {
           id: awb, awb,
           merchantId: form.merchantId,
@@ -83,13 +89,19 @@ export const useData = create(
           courier: form.courier || 'Selections Express',
           service, status: STATUS.BOOKED, currency,
           sender: form.sender,
-          receiver: form.receiver,
+          receiver: { ...form.receiver, region: dest.region },
+          productType: form.productType || 'parcel',
           parcel: {
             weight: Number(form.weight), length: Number(form.length) || 0, width: Number(form.width) || 0, height: Number(form.height) || 0,
-            declaredValue: Number(form.declaredValue) || 0, items: form.items || [], packaging: form.packaging || 'none',
-            pieces: form.items?.length || 1, insurance: !!form.insurance,
+            declaredValue: Number(form.declaredValue) || 0,
+            items: (form.items || []).map((i) => ({ ...i, qty: Number(i.qty) || 1, value: Number(i.value) || 0 })),
+            packaging: form.packaging || 'none',
+            pieces: Number(form.pieces) || form.items?.length || 1, insurance: !!form.insurance,
           },
           notes: form.notes || '',
+          paymentType,
+          payment,
+          toPay: paymentType === 'topay' ? q.total : 0,
           cod: Number(form.cod) || 0,
           codStatus: Number(form.cod) > 0 ? 'Pending' : 'None',
           createdAt: created,
@@ -98,7 +110,7 @@ export const useData = create(
           charges: { base: q.base, weight: q.weight, fuel: q.fuel, remote: q.remote, codFee: q.codFee, insurance: q.insurance, packaging: q.packaging, tax: q.tax, total: q.total },
           cost: q.cost, chargeableWeight: q.chargeableWeight, zone: q.zone,
           events: [{ status: STATUS.BOOKED, at: created, location: form.sender.city, by: a.name, note: `Booked by ${a.name}` }],
-          activity: [{ at: created, by: a.name, text: `Shipment ${awb} created` }],
+          activity: [{ at: created, by: a.name, text: `Shipment ${awb} created${payment ? ` (${payment.status})` : ''}` }],
         };
         set((st) => ({ shipments: [shipment, ...st.shipments], auditLog: withAudit(st, 'Shipment', 'Created', `${awb} booked`) }));
         return shipment;

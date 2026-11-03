@@ -10,8 +10,8 @@ import { useData } from '../../store/dataStore.js';
 import { confirm, toast } from '../../store/uiStore.js';
 import { useLookups, useMoney, useScopedShipments } from '../../hooks/useApp.js';
 import { HAPPY_PATH, NEXT_STATUS, STATUS, isDelayed } from '../../utils/status.js';
-import { serviceLabel, PACKAGING } from '../../utils/pricing.js';
-import { fmtCurrency, fmtDate, fmtDateTime } from '../../utils/format.js';
+import { serviceLabel, PACKAGING, paymentMethodLabel, paymentTypeLabel, productTypeLabel } from '../../utils/pricing.js';
+import { fmtCurrency, fmtDate, fmtDateTime, maskNationalId } from '../../utils/format.js';
 import { AssignRiderModal, LabelPrintModal } from './ShipmentList.jsx';
 
 const DOCS = [
@@ -131,17 +131,32 @@ export function ShipmentDetail() {
           <Card title="Summary">
             <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
               <KV label="Sender"><span className="block">{s.sender.name}</span><span className="block text-xs font-normal text-ink-muted">{s.sender.address}<br />{s.sender.phone}</span></KV>
-              <KV label="Receiver"><span className="block">{s.receiver.name}</span><span className="block text-xs font-normal text-ink-muted">{s.receiver.address}, {s.receiver.city}<br />{s.receiver.phone}</span></KV>
+              <KV label="Receiver">
+                <span className="block">{s.receiver.name}</span>
+                <span className="block text-xs font-normal text-ink-muted">
+                  {s.receiver.address}{s.receiver.landmark ? ` (near ${s.receiver.landmark})` : ''}, {s.receiver.city}<br />
+                  {s.receiver.zone && <>{s.receiver.zone}{s.receiver.region ? `, ${s.receiver.region}` : ''}<br /></>}
+                  {s.receiver.phone}{s.receiver.altPhone ? ` / ${s.receiver.altPhone}` : ''}
+                  {s.receiver.cnic && <><br />ID {maskNationalId(s.receiver.cnic)}</>}
+                </span>
+              </KV>
               <KV label="Merchant">{isMerchant ? merchant?.name : <Link className="link" to={`/customers/${s.merchantId}`}>{merchant?.name}</Link>}</KV>
               <KV label="Courier">{s.courier}</KV>
               <KV label="Service">{serviceLabel(s.service)}</KV>
               <KV label="Zone">{s.zone}</KV>
+              <KV label="Payment">
+                <span className="block">{paymentTypeLabel(s.paymentType || (s.cod > 0 ? 'cod' : 'prepaid'))}</span>
+                {s.payment && s.payment.method !== 'topay' && <span className="block text-xs font-normal text-ink-muted">{paymentMethodLabel(s.payment.method)}{s.payment.reference ? ` - ${s.payment.channel} ${s.payment.reference}` : ''}</span>}
+                {s.toPay > 0 && <span className="block text-xs font-semibold text-danger">Collect {fmtCurrency(s.toPay, s.currency)} at delivery</span>}
+              </KV>
             </dl>
             {s.notes && <p className="mt-3 rounded-lg bg-primary-light px-3 py-2 text-sm">Note: {s.notes}</p>}
           </Card>
 
           <Card title="Parcel and items">
             <dl className="mb-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <KV label="Product type">{productTypeLabel(s.productType)}</KV>
+              <KV label="Pieces">{s.parcel.pieces}</KV>
               <KV label="Weight">{s.parcel.weight} kg</KV>
               <KV label="Chargeable">{s.chargeableWeight} kg</KV>
               <KV label="Dimensions">{s.parcel.length} x {s.parcel.width} x {s.parcel.height} cm</KV>
@@ -151,9 +166,16 @@ export function ShipmentDetail() {
             </dl>
             <div className="scroll-thin overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-surface text-xs text-ink-muted"><tr><th className="px-3 py-2 text-start font-medium">Item</th><th className="px-3 py-2 text-end font-medium">Qty</th><th className="px-3 py-2 text-end font-medium">Value</th></tr></thead>
+                <thead className="bg-surface text-xs text-ink-muted"><tr><th className="px-3 py-2 text-start font-medium">Product</th><th className="px-3 py-2 text-end font-medium">Qty</th><th className="px-3 py-2 text-end font-medium">Unit price</th><th className="px-3 py-2 text-end font-medium">Total</th></tr></thead>
                 <tbody>
-                  {s.parcel.items.map((i, idx) => <tr key={idx} className="border-t border-line"><td className="px-3 py-2">{i.name}</td><td className="px-3 py-2 text-end">{i.qty}</td><td className="px-3 py-2 text-end">{fmtCurrency(i.value, s.currency)}</td></tr>)}
+                  {s.parcel.items.map((i, idx) => (
+                    <tr key={idx} className="border-t border-line">
+                      <td className="px-3 py-2">{i.name}{(i.sku || i.hsCode) && <span className="block text-xs text-ink-muted">{[i.sku && `SKU ${i.sku}`, i.hsCode && `HS ${i.hsCode}`].filter(Boolean).join(' - ')}</span>}</td>
+                      <td className="px-3 py-2 text-end">{i.qty} {i.unit || ''}</td>
+                      <td className="px-3 py-2 text-end">{fmtCurrency(i.value, s.currency)}</td>
+                      <td className="px-3 py-2 text-end">{fmtCurrency(i.qty * i.value, s.currency)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

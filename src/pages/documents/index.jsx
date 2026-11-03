@@ -50,7 +50,7 @@ function LabelDesigner() {
         </div>
       </Card>
       <Card title={`Live preview: ${PAGE_SIZES[size].label}`} className="lg:col-span-2" bodyClass="overflow-auto bg-gray-100 p-4 rounded-b-xl">
-        <div className="mx-auto w-fit" dir="ltr"><ShippingLabel shipment={s} size={size} /></div>
+        <div className="mx-auto w-fit"><ShippingLabel shipment={s} size={size} /></div>
       </Card>
       <LabelPrintModal open={print} rows={[s]} onClose={() => setPrint(false)} />
     </div>

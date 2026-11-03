@@ -292,9 +292,9 @@ export default function DataTable({
           </select>
         </div>
         <div className="flex items-center gap-1">
-          <button type="button" className="btn-outline btn-sm" disabled={current <= 1} onClick={() => setPage(current - 1)} aria-label="Previous page"><ChevronLeft size={14} className="rtl-flip" /></button>
+          <button type="button" className="btn-outline btn-sm" disabled={current <= 1} onClick={() => setPage(current - 1)} aria-label="Previous page"><ChevronLeft size={14} /></button>
           <span className="px-2">Page {current} of {pages}</span>
-          <button type="button" className="btn-outline btn-sm" disabled={current >= pages} onClick={() => setPage(current + 1)} aria-label="Next page"><ChevronRight size={14} className="rtl-flip" /></button>
+          <button type="button" className="btn-outline btn-sm" disabled={current >= pages} onClick={() => setPage(current + 1)} aria-label="Next page"><ChevronRight size={14} /></button>
         </div>
       </div>
     </div>

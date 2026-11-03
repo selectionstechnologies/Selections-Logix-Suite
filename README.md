@@ -51,7 +51,6 @@ Each step feeds the next, across roles:
 - **Auth:** there is no real security. Accounts and the password are in the client bundle.
 - **Permissions:** the matrix's **View** column really controls the sidebar and screen access, and **Export** hides the export button on the main shipment, customer and report lists. Create, Edit and Delete are stored but not enforced per button; role-specific screens handle those limits instead.
 - **Rates:** FX rates, HS codes and duty rates are dummy values, not current figures.
-- **Urdu:** the shell, navigation, login, dashboards, rider app, tracking and status names are translated, with full RTL layout. Deeper data screens stay in English. Charts and printed documents stay left-to-right.
 
 ## How the numbers stay consistent
 
@@ -68,7 +67,7 @@ src/
   data/        seeded mock data and selectors
   store/       Zustand: data (the mock backend), auth, UI
   hooks/       money, translation, scoping, permissions
-  utils/       pricing engine, formatters, status map, export, i18n
+  utils/       pricing engine, formatters, status map, export
   routes/      one table drives routes, guards, sidebar and breadcrumbs
 ```
 
