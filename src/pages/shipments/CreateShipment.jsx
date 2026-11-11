@@ -2,8 +2,9 @@
 // forward; rules that depend on other steps (ID format by country, product restrictions, payment
 // amounts) live in crossRules. The summary panel recalculates on every change and an unfinished
 // booking is kept as a draft in localStorage.
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { findReceiver, findReceiverByCnic, saveReceiver } from '../../lib/api.js';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -17,21 +18,22 @@ import { useAuth } from '../../store/authStore.js';
 import { useData } from '../../store/dataStore.js';
 import { toast } from '../../store/uiStore.js';
 import { CITY_MAP, CITY_NAMES, ZONES } from '../../data/geo.js';
-import { COURIER_NAMES } from '../../data/shipments.js';
+import { COURIER_NAMES } from '../../data/config.js';
 import { invoiceBalance } from '../../data/helpers.js';
 import {
   ONLINE_CHANNELS, PACKAGING, PAYMENT_METHODS, PAYMENT_TYPES, PRODUCT_TYPES, SERVICES, UNITS,
-  paymentMethodLabel, paymentTypeLabel, productTypeLabel, quote, serviceLabel, volumetricWeight,
+  paymentMethodLabel, shippingPlan, paymentTypeLabel, productTypeLabel, quote, serviceLabel, volumetricWeight,
 } from '../../utils/pricing.js';
+import { cleanPhoneInput, isPhone, phoneInputProps, zPhone, zPhoneOptional } from '../../utils/validation.js';
 import { CNIC_PATTERN, fmtCurrency, formatCnic, phoneKey, sum, toPKR } from '../../utils/format.js';
 import { LabelPrintModal } from './ShipmentList.jsx';
 
-const PHONE = /^\+?[0-9][0-9\s-]{8,16}$/;
-const phone = z.string().trim().regex(PHONE, 'Enter a valid phone number, e.g. +92 300 1234567');
+const phone = zPhone('Phone');
 const num = (msg = 'Required') => z.coerce.number({ invalid_type_error: msg });
 
 const schema = z.object({
   merchantId: z.string().min(1, 'Choose a merchant'),
+  plan: z.string(),
   sender: z.object({
     name: z.string().trim().min(2, 'Name is required'),
     phone,
@@ -40,7 +42,7 @@ const schema = z.object({
   }),
   receiver: z.object({
     phone,
-    altPhone: z.string().trim().refine((x) => !x || PHONE.test(x), 'Enter a valid phone number'),
+    altPhone: zPhoneOptional(),
     name: z.string().trim().min(2, 'Name is required'),
     cnic: z.string().trim().min(1, 'CNIC is required'),
     address: z.string().trim().min(5, 'Complete address is required'),
@@ -74,7 +76,7 @@ const schema = z.object({
 });
 
 const STEPS = [
-  { title: 'Sender', desc: 'Who is sending the parcel.', fields: ['merchantId', 'sender.name', 'sender.phone', 'sender.address', 'sender.city'] },
+  { title: 'Sender', desc: 'Who is sending the parcel.', fields: ['merchantId', 'plan', 'sender.name', 'sender.phone', 'sender.address', 'sender.city'] },
   { title: 'Receiver', desc: 'Who will receive it. Enter the phone first to reuse details of a previous receiver.', fields: ['receiver.phone', 'receiver.altPhone', 'receiver.name', 'receiver.cnic', 'receiver.address', 'receiver.landmark', 'receiver.city', 'receiver.zone'] },
   { title: 'Products', desc: 'What is inside. Add every product so the declared value is correct.', fields: ['productType', 'items'] },
   { title: 'Package', desc: 'Pieces, weight and size decide the chargeable weight.', fields: ['pieces', 'weight', 'length', 'width', 'height', 'packaging'] },
@@ -88,6 +90,7 @@ const DUPLICATE_WINDOW = 30 * 60000;
 const blankItem = () => ({ name: '', sku: '', qty: 1, unit: 'Pcs', value: 0, hsCode: '' });
 const blank = (merchantId = '') => ({
   merchantId,
+  plan: '',
   sender: { name: '', phone: '', address: '', city: '' },
   receiver: { phone: '', altPhone: '', name: '', cnic: '', address: '', landmark: '', city: '', zone: '' },
   productType: 'parcel',
@@ -107,12 +110,18 @@ const writeDraft = (key, value) => {
   try { if (value) localStorage.setItem(key, JSON.stringify(value)); else localStorage.removeItem(key); } catch { /* storage blocked */ }
 };
 
+const sameName = (a = '', b = '') => a.trim().replace(/\s+/g, ' ').toLowerCase() === b.trim().replace(/\s+/g, ' ').toLowerCase();
+
 /** Rules that span steps. Each issue says which step to send the user back to. */
-function crossRules(v, { crossBorder, due, duePKR, credit, currency }) {
+function crossRules(v, { crossBorder, due, duePKR, credit, currency, saved, renameOk }) {
   const out = [];
   const add = (step, path, message) => out.push({ step, path, message });
   if (v.receiver.cnic && !CNIC_PATTERN.test(v.receiver.cnic)) add(1, 'receiver.cnic', 'Enter a Pakistani CNIC as 35202-1234567-1 (13 digits)');
   if (v.receiver.zone && !(ZONES[v.receiver.city] || []).some((z) => z.value === v.receiver.zone)) add(1, 'receiver.zone', 'Choose a zone in this city');
+  if (v.receiver.altPhone && phoneKey(v.receiver.altPhone) === phoneKey(v.receiver.phone)) add(1, 'receiver.altPhone', 'Second number must be different from the first');
+  if (saved && !renameOk && v.receiver.name && sameName(v.receiver.name, saved.name) === false) {
+    add(1, 'receiver.name', `${saved.phone} is already saved for "${saved.name}". Use the saved details, or choose "Update saved name".`);
+  }
 
   const type = PRODUCT_TYPES.find((p) => p.value === v.productType) || {};
   if (type.liquid && crossBorder) add(2, 'productType', 'Liquids cannot be shipped cross-border');
@@ -137,12 +146,15 @@ function crossRules(v, { crossBorder, due, duePKR, credit, currency }) {
 
 const get = (obj, path) => path.split('.').reduce((o, k) => o?.[k], obj);
 
-function Field({ label, name, register, errors, required, children, type = 'text', placeholder, step, className, hint, ...rest }) {
+function Field({ label, name, register, errors, required, children, type = 'text', placeholder, step, className, hint, format, ...rest }) {
   const err = get(errors, name);
+  const reg = children ? null : register(name);
+  // `format` cleans the typed value (e.g. phone digits) before the form stores it.
+  const onChange = reg && format ? (e) => { e.target.value = format(e.target.value); return reg.onChange(e); } : reg?.onChange;
   return (
     <div className={className}>
       <label htmlFor={name} className="label">{label}{required && <span className="text-danger"> *</span>}</label>
-      {children || <input id={name} type={type} step={step} placeholder={placeholder} aria-invalid={!!err} className={clsx('input', err && 'input-error')} {...register(name)} {...rest} />}
+      {children || <input id={name} type={type} step={step} placeholder={placeholder} aria-invalid={!!err} className={clsx('input', err && 'input-error')} {...reg} onChange={onChange} {...rest} />}
       {hint && !err && <p className="mt-1 text-xs text-ink-muted">{hint}</p>}
       <FieldError message={err?.message} />
     </div>
@@ -153,9 +165,9 @@ function SenderForm({ register, errors }) {
   const cityErr = errors.sender?.city;
   return (
     <div className="grid gap-3 sm:grid-cols-2">
-      <Field label="Name" name="sender.name" register={register} errors={errors} required />
-      <Field label="Phone" name="sender.phone" register={register} errors={errors} required placeholder="+92 300 1234567" />
-      <Field label="Address" name="sender.address" register={register} errors={errors} required className="sm:col-span-2" />
+      <Field label="Name" name="sender.name" register={register} errors={errors} required placeholder="Sender or business name, e.g. Zaryab Fashion" maxLength={80} />
+      <Field label="Phone" name="sender.phone" register={register} errors={errors} required {...phoneInputProps} format={cleanPhoneInput} />
+      <Field label="Address" name="sender.address" register={register} errors={errors} required placeholder="Pickup address: shop / warehouse, street, area" maxLength={250} className="sm:col-span-2" />
       <Field label="City" name="sender.city" register={register} errors={errors} required>
         <select id="sender.city" className={clsx('input', cityErr && 'input-error')} {...register('sender.city')}>
           <option value="">Select...</option>
@@ -224,13 +236,23 @@ export function CreateShipment() {
   const user = useAuth((s) => s.user);
   const { merchants, shipments, invoices, rateCard, merchantOverrides, createShipment } = useData();
   const isMerchant = user.role === 'merchant';
+  const canAddCustomer = ['super_admin', 'branch_manager'].includes(user.role);
+  const [params, setParams] = useSearchParams();
+  // Opens the customer form; saving it comes back here with the new customer selected.
+  // The booking draft is saved as you type, so nothing entered so far is lost.
+  const addCustomer = () => navigate('/accounts/customers/new?return=/shipments/new');
   const draftKey = `slx-booking-draft-${user.email || user.role}`;
   const [draft] = useState(() => readDraft(draftKey));
   const [restored, setRestored] = useState(!!draft);
   const [step, setStep] = useState(draft?.step ?? 0);
   const [created, setCreated] = useState(null);
   const [printing, setPrinting] = useState(false);
-  const [match, setMatch] = useState(null);
+  const [saved, setSaved] = useState(null); // receiver saved in the database for the typed phone
+  const [lookingUp, setLookingUp] = useState(false);
+  const [renameOk, setRenameOk] = useState(false); // user chose to rename the saved receiver
+  const [cnicClash, setCnicClash] = useState(null); // another saved receiver with this CNIC
+  const filledFrom = useRef(null); // id of the saved receiver the fields were filled from
+  const [hasAlt, setHasAlt] = useState(false);
 
   const bookable = useMemo(() => merchants.filter((m) => m.status === 'Active' || m.id === user.merchantId), [merchants, user]);
 
@@ -240,11 +262,26 @@ export function CreateShipment() {
   const { fields, append, insert, remove } = useFieldArray({ control, name: 'items' });
 
   const v = watch();
+  // A second number found on a returning receiver also opens the field.
+  const showAlt = hasAlt || !!v.receiver?.altPhone;
   const merchantId = v.merchantId;
   const merchant = merchants.find((m) => m.id === merchantId);
   const type = PRODUCT_TYPES.find((p) => p.value === v.productType) || {};
+  const plans = (merchant?.shippingPlans || []).map(shippingPlan).filter(Boolean);
+  const activePlan = plans.length ? shippingPlan(v.plan) : null;
 
-  // Picking a merchant fills the sender from their default pickup location.
+  // The customer's shipping plan decides the payment type, how charges are paid and, for Cargo,
+  // the service. Customers saved before plans existed have none and choose these per parcel.
+  const applyPlan = (value) => {
+    setValue('plan', value || '');
+    const pl = shippingPlan(value);
+    if (!pl) return;
+    setValue('paymentType', pl.paymentType, { shouldValidate: true });
+    setValue('payment.method', pl.method || '');
+    if (pl.service) setValue('service', pl.service);
+  };
+
+  // Picking a merchant fills the sender from their default pickup location and applies their plan.
   const applyMerchant = (id) => {
     setValue('merchantId', id, { shouldValidate: true });
     const m = merchants.find((x) => x.id === id);
@@ -253,8 +290,29 @@ export function CreateShipment() {
     setValue('sender.phone', m.phone, { shouldValidate: true });
     setValue('sender.address', m.pickups[0]?.address || m.address, { shouldValidate: true });
     setValue('sender.city', m.city, { shouldValidate: true });
+    applyPlan(m.shippingPlans?.[0]);
   };
   useEffect(() => { if (isMerchant) applyMerchant(user.merchantId); /* eslint-disable-next-line */ }, [isMerchant]);
+  // Back from "Add new customer": select the customer just created once it has loaded.
+  const newCustomerId = params.get('customer');
+  useEffect(() => {
+    if (!newCustomerId || !merchants.some((m) => m.id === newCustomerId)) return;
+    applyMerchant(newCustomerId);
+    setParams({}, { replace: true });
+    toast.success('New customer selected');
+    // eslint-disable-next-line
+  }, [newCustomerId, merchants]);
+
+  // Customer records load from the database just after sign-in: fill in once the record arrives,
+  // and keep the chosen plan valid if the customer's plans change.
+  const planKey = (merchant?.shippingPlans || []).join();
+  useEffect(() => {
+    if (!merchant) return;
+    if (isMerchant && !getValues('sender.name')) applyMerchant(merchant.id);
+    else if (merchant.shippingPlans?.length && !merchant.shippingPlans.includes(getValues('plan'))) applyPlan(merchant.shippingPlans[0]);
+    else if (!merchant.shippingPlans?.length && getValues('plan')) setValue('plan', '');
+    // eslint-disable-next-line
+  }, [merchant?.id, planKey]);
 
   // Declared value always equals the product lines, so it cannot drift from what was entered.
   const itemsKey = JSON.stringify((v.items || []).map((i) => [i.qty, i.value]));
@@ -305,14 +363,15 @@ export function CreateShipment() {
   const duePKR = toPKR(due, currency);
   const outstanding = useMemo(() => sum(invoices.filter((i) => i.merchantId === merchantId), invoiceBalance), [invoices, merchantId]);
   const credit = { limit: merchant?.creditLimit || 0, outstanding, available: Math.max((merchant?.creditLimit || 0) - outstanding, 0) };
-  const ctx = { crossBorder, due, duePKR, credit, currency };
+  const ctx = { crossBorder, due, duePKR, credit, currency, saved, renameOk };
 
   // Cash is only taken at a counter, and COD deduction only exists on COD bookings.
-  const methods = PAYMENT_METHODS.filter((m) => (m.value !== 'cash' || !isMerchant) && (m.value !== 'cod-deduct' || v.paymentType === 'cod'));
+  const methods = PAYMENT_METHODS.filter((m) => (activePlan?.method ? m.value === activePlan.method
+    : (m.value !== 'cash' || !isMerchant) && (m.value !== 'cod-deduct' || v.paymentType === 'cod')));
   useEffect(() => {
     if (v.payment.method && !methods.some((m) => m.value === v.payment.method)) setValue('payment.method', '');
     // eslint-disable-next-line
-  }, [v.paymentType, isMerchant]);
+  }, [v.paymentType, isMerchant, v.plan]);
 
   // Unfinished bookings survive a refresh or an accidental navigation.
   const valuesKey = JSON.stringify(v);
@@ -324,24 +383,65 @@ export function CreateShipment() {
   const startFresh = () => {
     writeDraft(draftKey, null);
     reset(blank());
+    setHasAlt(false);
     setStep(0);
     setRestored(false);
-    setMatch(null);
+    setSaved(null);
+    setRenameOk(false);
+    setCnicClash(null);
+    filledFrom.current = null;
     if (isMerchant) applyMerchant(user.merchantId);
   };
 
-  // Returning receiver: same phone on an earlier booking. Merchants only see their own receivers.
-  const lookupReceiver = (value) => {
-    const key = phoneKey(value);
-    if (key.length < 10 || v.receiver.name) { setMatch(null); return; }
-    const found = shipments.find((s) => phoneKey(s.receiver.phone) === key && (!isMerchant || s.merchantId === user.merchantId));
-    setMatch(found ? found.receiver : null);
+  // Returning receiver: look the phone up in this customer's saved receivers as it is typed.
+  // A saved number fills in the form; a new number is saved when the shipment is booked.
+  const RECEIVER_KEYS = ['name', 'cnic', 'address', 'landmark', 'altPhone', 'city', 'zone'];
+  const fillFrom = (rec) => {
+    const vals = { name: rec.name, cnic: rec.cnic || '', address: rec.address, landmark: rec.landmark || '', altPhone: rec.alt_phone || '', city: rec.city, zone: rec.zone || '' };
+    RECEIVER_KEYS.forEach((k) => setValue(`receiver.${k}`, vals[k], { shouldValidate: true, shouldDirty: true }));
+    filledFrom.current = rec.id;
+    setRenameOk(false);
   };
-  const applyMatch = () => {
-    ['name', 'cnic', 'address', 'landmark', 'altPhone', 'city', 'zone'].forEach((k) => { if (match[k]) setValue(`receiver.${k}`, match[k], { shouldValidate: true, shouldDirty: true }); });
-    setMatch(null);
-    toast.success('Receiver details filled in. Check them before continuing.');
+  const clearFilled = () => {
+    RECEIVER_KEYS.forEach((k) => setValue(`receiver.${k}`, ''));
+    filledFrom.current = null;
   };
+  const receiverPhone = v.receiver?.phone || '';
+  const receiverKey = isPhone(receiverPhone) ? phoneKey(receiverPhone) : '';
+  useEffect(() => {
+    if (!merchantId || !receiverKey) { setSaved(null); return undefined; }
+    let live = true;
+    setLookingUp(true);
+    findReceiver(merchantId, receiverPhone)
+      .then((rec) => {
+        if (!live) return;
+        setSaved(rec);
+        setRenameOk(false);
+        if (rec && (!getValues('receiver.name') || filledFrom.current)) {
+          fillFrom(rec);
+          toast.info(`Saved receiver found: ${rec.name}`);
+        } else if (!rec && filledFrom.current) {
+          // The number changed from a saved receiver to a new one: do not carry the old person's details.
+          clearFilled();
+        }
+      })
+      .catch(() => { if (live) setSaved(null); })
+      .finally(() => { if (live) setLookingUp(false); });
+    return () => { live = false; };
+    // eslint-disable-next-line
+  }, [receiverKey, merchantId]);
+
+  // Same CNIC already saved under a different number: warn, do not block (one person can have two numbers).
+  const receiverCnic = v.receiver?.cnic || '';
+  useEffect(() => {
+    if (!merchantId || !CNIC_PATTERN.test(receiverCnic)) { setCnicClash(null); return undefined; }
+    let live = true;
+    findReceiverByCnic(merchantId, receiverCnic, receiverPhone).then((x) => { if (live) setCnicClash(x); }).catch(() => {});
+    return () => { live = false; };
+    // eslint-disable-next-line
+  }, [receiverCnic, merchantId, receiverKey]);
+
+  const nameClash = saved && !renameOk && v.receiver?.name && !sameName(v.receiver.name, saved.name);
 
   const applyProductType = (value) => {
     setValue('productType', value, { shouldValidate: true, shouldDirty: true });
@@ -382,6 +482,9 @@ export function CreateShipment() {
       change: method === 'cash' ? Math.max(Number(received) - due, 0) : 0,
     };
     const shipment = createShipment({ ...data, payment });
+    // Keep the receiver for next time. The shipment is already booked, so a failure here only warns.
+    saveReceiver(data.merchantId, data.receiver)
+      .catch((e) => toast.error(`Shipment booked, but the receiver was not saved: ${e.message}`));
     writeDraft(draftKey, null);
     setCreated(shipment);
     toast.success(`Shipment ${shipment.awb} booked`);
@@ -460,12 +563,37 @@ export function CreateShipment() {
             {step === 0 && (
               <div className="space-y-3">
                 {!isMerchant && (
-                  <Field label="Merchant / customer" name="merchantId" register={register} errors={errors} required>
-                    <select id="merchantId" className={clsx('input', errors.merchantId && 'input-error')} value={merchantId} onChange={(e) => applyMerchant(e.target.value)}>
-                      <option value="">Select...</option>
-                      {bookable.map((m) => <option key={m.id} value={m.id}>{m.name} ({m.city})</option>)}
-                    </select>
-                  </Field>
+                  <div>
+                    <Field label="Merchant / customer" name="merchantId" register={register} errors={errors} required>
+                      <select id="merchantId" className={clsx('input', errors.merchantId && 'input-error')} value={merchantId} onChange={(e) => (e.target.value === '__new__' ? addCustomer() : applyMerchant(e.target.value))}>
+                        <option value="">{bookable.length ? 'Select...' : 'No customers yet'}</option>
+                        {bookable.map((m) => <option key={m.id} value={m.id}>{m.name}{m.accountNo ? ` - ${m.accountNo}` : ''} ({m.city})</option>)}
+                        {canAddCustomer && <option value="__new__">+ Add new customer...</option>}
+                      </select>
+                    </Field>
+                    {canAddCustomer && (
+                      <button type="button" className="mt-1.5 inline-flex items-center gap-1 text-sm font-medium text-ink hover:underline" onClick={addCustomer}>
+                        <Plus size={14} aria-hidden /> Add new customer
+                      </button>
+                    )}
+                  </div>
+                )}
+                {plans.length > 0 && (
+                  <fieldset>
+                    <legend className="label">Shipping plan</legend>
+                    {plans.length === 1 ? (
+                      <Notice><b>{plans[0].label}</b>: {plans[0].hint}</Notice>
+                    ) : (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {plans.map((pl) => (
+                          <button key={pl.value} type="button" onClick={() => applyPlan(pl.value)} aria-pressed={v.plan === pl.value} className={clsx('rounded-lg border p-3 text-start text-sm', v.plan === pl.value ? 'border-primary-hover bg-primary-light' : 'border-line hover:bg-surface')}>
+                            <span className="block font-semibold">{pl.label}</span>
+                            <span className="text-xs text-ink-muted">{pl.hint}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </fieldset>
                 )}
                 {merchant?.pickups?.length > 0 && (
                   <div>
@@ -509,26 +637,49 @@ export function CreateShipment() {
                   <Field
                     label="Phone"
                     name="receiver.phone"
-                    register={() => register('receiver.phone', { onBlur: (e) => lookupReceiver(e.target.value) })}
+                    register={register}
                     errors={errors}
                     required
-                    type="tel"
-                    placeholder="+92 300 1234567"
-                    hint="Previous receivers are found by phone"
+                    {...phoneInputProps}
+                    format={cleanPhoneInput}
+                    hint={lookingUp ? 'Checking saved receivers...' : saved ? `Saved receiver: ${saved.name} (${saved.shipments_count} earlier shipment${saved.shipments_count === 1 ? '' : 's'})` : receiverKey ? 'New receiver: saved when you book' : 'Saved receivers are found by phone'}
                   />
-                  <Field label="Alternate phone" name="receiver.altPhone" register={register} errors={errors} type="tel" placeholder="Optional" />
+                  {showAlt ? (
+                    <Field label="Second phone" name="receiver.altPhone" register={register} errors={errors} {...phoneInputProps} placeholder="Receiver's other number, e.g. 0321 7654321" format={cleanPhoneInput} />
+                  ) : <div className="hidden sm:block" />}
+                  <label className="flex items-center gap-2 text-sm sm:col-span-2">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-primary-hover"
+                      checked={showAlt}
+                      onChange={(e) => {
+                        setHasAlt(e.target.checked);
+                        if (!e.target.checked) setValue('receiver.altPhone', '', { shouldValidate: true, shouldDirty: true });
+                      }}
+                    />
+                    Receiver has a second phone number
+                  </label>
                 </div>
-                {match && (
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-primary-light px-3 py-2 text-sm">
-                    <span className="flex items-center gap-2"><UserCheck size={16} aria-hidden /> Returning receiver: <b>{match.name}</b>, {match.city}</span>
+                {nameClash && (
+                  <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger/40 bg-danger-light px-3 py-2 text-sm text-danger-dark">
+                    <span className="flex items-center gap-2"><AlertTriangle size={16} aria-hidden /> This number is already saved for <b>{saved.name}</b>{saved.city ? `, ${saved.city}` : ''}.</span>
                     <span className="flex gap-2">
-                      <button type="button" className="btn-primary btn-sm" onClick={applyMatch}>Use these details</button>
-                      <button type="button" className="btn-ghost btn-sm" onClick={() => setMatch(null)}>Ignore</button>
+                      <button type="button" className="btn-primary btn-sm" onClick={() => { fillFrom(saved); toast.success('Saved details filled in'); }}>Use saved details</button>
+                      <button type="button" className="btn-outline btn-sm" onClick={() => { setRenameOk(true); trigger('receiver.name'); toast.info(`The saved name will change to "${getValues('receiver.name')}" when you book`); }}>Update saved name</button>
                     </span>
                   </div>
                 )}
+                {saved && !nameClash && filledFrom.current === saved.id && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-primary-light px-3 py-2 text-sm">
+                    <span className="flex items-center gap-2"><UserCheck size={16} aria-hidden /> Saved receiver <b>{saved.name}</b> filled in. Check the address before continuing.</span>
+                    <button type="button" className="btn-ghost btn-sm" onClick={() => { clearFilled(); toast.info('Fields cleared'); }}>Clear</button>
+                  </div>
+                )}
+                {cnicClash && (
+                  <Notice tone="warn">CNIC {receiverCnic} is already saved for <b>{cnicClash.name}</b> ({cnicClash.phone}). Make sure this is the same person.</Notice>
+                )}
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Full name" name="receiver.name" register={register} errors={errors} required />
+                  <Field label="Full name" name="receiver.name" register={register} errors={errors} required placeholder="Receiver's full name, e.g. Sara Ahmed" maxLength={80} />
                   <Field
                     label="CNIC"
                     name="receiver.cnic"
@@ -539,8 +690,8 @@ export function CreateShipment() {
                     placeholder="35202-1234567-1"
                     hint="Pakistani CNIC, 13 digits. Dashes are added as you type"
                   />
-                  <Field label="Complete address" name="receiver.address" register={register} errors={errors} required placeholder="House / flat, street, block, area" className="sm:col-span-2" />
-                  <Field label="Nearest landmark" name="receiver.landmark" register={register} errors={errors} placeholder="Optional, e.g. near Jamia Masjid" className="sm:col-span-2" />
+                  <Field label="Complete address" name="receiver.address" register={register} errors={errors} required placeholder="House / flat no., street, block, area, e.g. House 12, Street 4, Block B, Gulberg" maxLength={250} className="sm:col-span-2" />
+                  <Field label="Nearest landmark" name="receiver.landmark" register={register} errors={errors} placeholder="Optional, e.g. near Jamia Masjid / opposite Bank Alfalah" maxLength={120} className="sm:col-span-2" />
                 </div>
                 <div className="grid gap-3 sm:grid-cols-3">
                   <Field label="City" name="receiver.city" register={register} errors={errors} required>
@@ -596,19 +747,19 @@ export function CreateShipment() {
                           </div>
                           <div className={crossBorder ? 'sm:col-span-3' : 'col-span-2 sm:col-span-6'}>
                             <label htmlFor={`items.${i}.sku`} className="label">SKU / order no.</label>
-                            <input id={`items.${i}.sku`} placeholder="Optional" className={clsx('input', e.sku && 'input-error')} {...register(`items.${i}.sku`)} />
+                            <input id={`items.${i}.sku`} placeholder="Optional, e.g. KRT-M-01" className={clsx('input', e.sku && 'input-error')} {...register(`items.${i}.sku`)} />
                             <FieldError message={e.sku?.message} />
                           </div>
                           {crossBorder && (
                             <div className="sm:col-span-3">
                               <label htmlFor={`items.${i}.hsCode`} className="label">HS code<span className="text-danger"> *</span></label>
-                              <input id={`items.${i}.hsCode`} placeholder="6204.42" className={clsx('input', e.hsCode && 'input-error')} {...register(`items.${i}.hsCode`)} />
+                              <input id={`items.${i}.hsCode`} placeholder="e.g. 6204.42" className={clsx('input', e.hsCode && 'input-error')} {...register(`items.${i}.hsCode`)} />
                               <FieldError message={e.hsCode?.message} />
                             </div>
                           )}
                           <div className="sm:col-span-2">
                             <label htmlFor={`items.${i}.qty`} className="label">Qty<span className="text-danger"> *</span></label>
-                            <input id={`items.${i}.qty`} type="number" min={1} className={clsx('input', e.qty && 'input-error')} {...register(`items.${i}.qty`)} />
+                            <input id={`items.${i}.qty`} type="number" min={1} placeholder="1" className={clsx('input', e.qty && 'input-error')} {...register(`items.${i}.qty`)} />
                             <FieldError message={e.qty?.message} />
                           </div>
                           <div className="sm:col-span-3">
@@ -620,7 +771,7 @@ export function CreateShipment() {
                           </div>
                           <div className="sm:col-span-3">
                             <label htmlFor={`items.${i}.value`} className="label">Unit price ({currency})<span className="text-danger"> *</span></label>
-                            <input id={`items.${i}.value`} type="number" min={0} className={clsx('input', e.value && 'input-error')} {...register(`items.${i}.value`)} />
+                            <input id={`items.${i}.value`} type="number" min={0} placeholder="Price of one unit" className={clsx('input', e.value && 'input-error')} {...register(`items.${i}.value`)} />
                             <FieldError message={e.value?.message} />
                           </div>
                           <div className="sm:col-span-4">
@@ -643,8 +794,8 @@ export function CreateShipment() {
             {step === 3 && (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <Field label="Pieces (boxes)" name="pieces" type="number" register={register} errors={errors} required hint="One label per piece" />
-                  <Field label="Total weight (kg)" name="weight" type="number" step="0.1" register={register} errors={errors} required />
+                  <Field label="Pieces (boxes)" name="pieces" type="number" register={register} errors={errors} required placeholder="e.g. 1" hint="One label per piece" />
+                  <Field label="Total weight (kg)" name="weight" type="number" step="0.1" register={register} errors={errors} required placeholder="e.g. 0.5" />
                   <Field label="Packaging" name="packaging" register={register} errors={errors} className="col-span-2">
                     <select id="packaging" className="input" {...register('packaging')}>
                       {PACKAGING.map((p) => <option key={p.value} value={p.value}>{p.label}{p.fee ? ` (Rs ${p.fee})` : ''}</option>)}
@@ -652,9 +803,9 @@ export function CreateShipment() {
                   </Field>
                 </div>
                 <div className="grid grid-cols-3 gap-3">
-                  <Field label="Length (cm)" name="length" type="number" register={register} errors={errors} />
-                  <Field label="Width (cm)" name="width" type="number" register={register} errors={errors} />
-                  <Field label="Height (cm)" name="height" type="number" register={register} errors={errors} />
+                  <Field label="Length (cm)" name="length" type="number" register={register} errors={errors} placeholder="Optional" />
+                  <Field label="Width (cm)" name="width" type="number" register={register} errors={errors} placeholder="Optional" />
+                  <Field label="Height (cm)" name="height" type="number" register={register} errors={errors} placeholder="Optional" />
                 </div>
                 <div className="grid grid-cols-3 gap-2 rounded-lg bg-surface p-3 text-center text-sm">
                   <div><p className="text-xs text-ink-muted">Actual</p><p className="font-semibold">{Number(v.weight) || 0} kg</p></div>
@@ -671,7 +822,8 @@ export function CreateShipment() {
                   <legend className="label">Service type<span className="text-danger"> *</span></legend>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {SERVICES.map((s) => {
-                      const disabled = crossBorder ? s.value !== 'international' : s.value === 'international';
+                      const planLocked = !crossBorder && activePlan?.service && s.value !== activePlan.service;
+                      const disabled = crossBorder ? s.value !== 'international' : s.value === 'international' || planLocked;
                       return (
                         <ChoiceCard
                           key={s.value}
@@ -689,12 +841,19 @@ export function CreateShipment() {
                   <FieldError message={errors.service?.message} />
                 </fieldset>
 
-                <fieldset>
-                  <legend className="label">Payment type<span className="text-danger"> *</span></legend>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    {PAYMENT_TYPES.map((p) => <ChoiceCard key={p.value} name="paymentType" value={p.value} register={register} checked={v.paymentType === p.value} title={p.label} hint={p.hint} />)}
-                  </div>
-                </fieldset>
+                {activePlan ? (
+                  <Notice>
+                    <b>{activePlan.label} plan:</b> {paymentTypeLabel(activePlan.paymentType)}
+                    {activePlan.method ? `, charges ${activePlan.method === 'credit' ? 'billed to the account' : 'deducted from the COD'}` : ''}. Set on the customer account.
+                  </Notice>
+                ) : (
+                  <fieldset>
+                    <legend className="label">Payment type<span className="text-danger"> *</span></legend>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {PAYMENT_TYPES.map((p) => <ChoiceCard key={p.value} name="paymentType" value={p.value} register={register} checked={v.paymentType === p.value} title={p.label} hint={p.hint} />)}
+                    </div>
+                  </fieldset>
+                )}
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   {v.paymentType === 'cod' && (
@@ -705,6 +864,7 @@ export function CreateShipment() {
                       register={register}
                       errors={errors}
                       required
+                      placeholder="Amount the rider collects, e.g. 3500"
                       hint={v.declaredValue > 0 ? `Goods value is ${fmtCurrency(v.declaredValue, currency)}` : undefined}
                     />
                   )}
@@ -760,7 +920,7 @@ export function CreateShipment() {
                     <div>
                       <label htmlFor="payment.received" className="label">Cash received ({currency})<span className="text-danger"> *</span></label>
                       <div className="flex gap-2">
-                        <input id="payment.received" type="number" min={0} className={clsx('input', errors.payment?.received && 'input-error')} {...register('payment.received')} />
+                        <input id="payment.received" type="number" min={0} placeholder="Cash given by the sender" className={clsx('input', errors.payment?.received && 'input-error')} {...register('payment.received')} />
                         <button type="button" className="btn-outline whitespace-nowrap" onClick={() => setValue('payment.received', String(due), { shouldValidate: true })}>Exact</button>
                       </div>
                       <FieldError message={errors.payment?.received?.message} />
@@ -858,15 +1018,15 @@ export function CreateShipment() {
           {!q && <p className="border-t border-line py-6 text-center text-sm text-ink-muted">Choose the sender and receiver cities to see the price.</p>}
           {q && (
             <div className="border-t border-line pt-2">
-              <p className="mb-2 text-xs text-ink-muted">{originCity} to {destCity} - Zone {q.zone} - {q.chargeableWeight} kg chargeable</p>
+              <p className="mb-2 text-xs text-ink-muted">{originCity} to {destCity} - Zone {q.zone} - {q.chargeableWeight} kg chargeable{q.areaRule ? ` - ${q.areaRule.value} rate` : ''}</p>
               <PriceLine label="Base freight" value={q.base} currency={currency} />
               <PriceLine label="Extra weight" value={q.weight} currency={currency} />
-              <PriceLine label={`Fuel surcharge (${rateCard.fuelPct}%)`} value={q.fuel} currency={currency} />
+              <PriceLine label={`Fuel surcharge (${q.fuelPct}%)`} value={q.fuel} currency={currency} />
               <PriceLine label="Remote area" value={q.remote} currency={currency} />
               <PriceLine label="COD fee" value={q.codFee} currency={currency} />
               <PriceLine label="Insurance" value={q.insurance} currency={currency} />
               <PriceLine label="Packaging" value={q.packaging} currency={currency} />
-              <PriceLine label={`Tax (${rateCard.taxPct}%)`} value={q.tax} currency={currency} />
+              <PriceLine label={`Tax (${q.taxPct}%)`} value={q.tax} currency={currency} />
               <PriceLine label="Total" value={q.total} currency={currency} bold />
               {override?.discountPct > 0 && <p className="mt-2 rounded bg-primary-light px-2 py-1 text-xs">Contract discount of {override.discountPct}% applied to freight.</p>}
               <div className="mt-3 space-y-1 rounded-lg bg-surface p-2 text-xs">

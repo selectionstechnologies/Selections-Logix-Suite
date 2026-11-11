@@ -1,6 +1,6 @@
-// The mock backend: every collection lives here and every write records an audit entry.
+// Operational store: every collection lives here and every write records an audit entry.
 // State persists to localStorage so a booking survives refresh and is visible on the
-// public tracking page in another tab. Settings > Reset demo data restores the seed.
+// public tracking page in another tab. Branches, customers, riders and users are loaded from the database (hooks/useDbSync.js).
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { seed } from '../data/index.js';
@@ -10,9 +10,10 @@ import { useAuth } from './authStore.js';
 import { quote } from '../utils/pricing.js';
 import { STATUS, NEXT_STATUS } from '../utils/status.js';
 import { uid, sum, toPKR } from '../utils/format.js';
-import { ROLE_LABELS } from '../data/people.js';
+import { ROLE_LABELS } from '../data/config.js';
 
 const nowISO = () => new Date().toISOString();
+const DB_KEYS = ['branches', 'merchants', 'riders', 'users', 'rateCard'];
 
 const actor = () => {
   const u = useAuth.getState().user;
@@ -48,7 +49,7 @@ export const useData = create(
         [key]: value,
         auditLog: withAudit(s, entity || key, 'Updated', detail || key),
       })),
-      resetDemo: () => set({ ...seed() }),
+      resetDemo: () => set((s) => ({ ...seed(), branches: s.branches, merchants: s.merchants, riders: s.riders, users: s.users })),
       logPrint: (kind, refs, size) => set((s) => ({
         printHistory: [{ id: uid('PR'), kind, refs, size, at: nowISO(), by: actor().name }, ...s.printHistory].slice(0, 100),
       })),
@@ -56,7 +57,8 @@ export const useData = create(
       // ---- shipments ----
       createShipment: (form) => {
         const s = get();
-        const nextNo = Math.max(...s.shipments.map((x) => Number(x.awb.replace('SLX', '')))) + 1;
+        // AWBs run SLX100001, SLX100002, ... and continue from the highest one in use.
+        const nextNo = Math.max(100000, ...s.shipments.map((x) => Number(x.awb.replace('SLX', '')) || 0)) + 1;
         const awb = `SLX${nextNo}`;
         const origin = CITY_MAP[form.sender.city];
         const dest = CITY_MAP[form.receiver.city];
@@ -91,6 +93,7 @@ export const useData = create(
           sender: form.sender,
           receiver: { ...form.receiver, region: dest.region },
           productType: form.productType || 'parcel',
+          plan: form.plan || null,
           parcel: {
             weight: Number(form.weight), length: Number(form.length) || 0, width: Number(form.width) || 0, height: Number(form.height) || 0,
             declaredValue: Number(form.declaredValue) || 0,
@@ -287,7 +290,15 @@ export const useData = create(
     }),
     {
       name: 'slx-data',
-      version: 1,
+      // Version 2 dropped the sample data. Anything saved by version 1 was sample-based, so start clean.
+      version: 3,
+      // v1 held sample data (dropped). v3 made A5 the default label size.
+      migrate: (state, version) => {
+        if (version < 2 || !state) return {};
+        return { ...state, settings: { ...(state.settings || {}), labelFormat: 'a5' } };
+      },
+      // Database-backed lists are reloaded on every sign-in, so they are not kept in the browser.
+      partialize: (s) => Object.fromEntries(Object.entries(s).filter(([k, v]) => typeof v !== 'function' && !DB_KEYS.includes(k))),
       storage: safeStorage,
       // Functions are not serialised; merge keeps fresh actions over persisted data.
       merge: (persisted, current) => ({ ...current, ...(persisted || {}) }),

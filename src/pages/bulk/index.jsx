@@ -16,7 +16,7 @@ import { uid } from '../../utils/format.js';
 import { LabelPrintModal } from '../shipments/ShipmentList.jsx';
 import Papa from 'papaparse';
 
-const PHONE = /^\+?[0-9][0-9\s-]{8,16}$/;
+import { isPhone } from '../../utils/validation.js';
 const num = (v) => (v === '' || v === null || v === undefined ? NaN : Number(v));
 const SERVICE_VALUES = SERVICES.map((s) => s.value);
 
@@ -30,7 +30,7 @@ const KINDS = {
     template: 'bulk-booking-template',
     columns: [
       { key: 'receiver_name', label: 'Receiver', validate: required('Receiver') },
-      { key: 'receiver_phone', label: 'Phone', validate: (v) => (PHONE.test(String(v ?? '').trim()) ? null : { error: 'Invalid phone number' }) },
+      { key: 'receiver_phone', label: 'Phone', validate: (v) => (isPhone(String(v ?? '')) ? null : { error: 'Invalid phone number (use 0300 1234567 or +92 300 1234567)' }) },
       { key: 'receiver_address', label: 'Address', validate: (v) => (String(v ?? '').trim().length >= 5 ? null : { error: 'Address is too short' }) },
       { key: 'receiver_city', label: 'City', validate: oneOf('City', CITY_NAMES) },
       { key: 'weight_kg', label: 'Weight', validate: (v) => { const n = num(v); if (!(n > 0)) return { error: 'Weight must be above 0' }; return n > 30 ? { warning: 'Over 30 kg: check the weight' } : null; } },
@@ -68,7 +68,7 @@ const KINDS = {
       { key: 'type', label: 'Type', validate: oneOf('Type', ['Merchant', 'Individual', 'Corporate']) },
       { key: 'contact', label: 'Contact', validate: required('Contact') },
       { key: 'email', label: 'Email', validate: (v) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v ?? '').trim()) ? null : { error: 'Invalid email' }) },
-      { key: 'phone', label: 'Phone', validate: (v) => (PHONE.test(String(v ?? '').trim()) ? null : { error: 'Invalid phone number' }) },
+      { key: 'phone', label: 'Phone', validate: (v) => (isPhone(String(v ?? '')) ? null : { error: 'Invalid phone number (use 0300 1234567 or +92 300 1234567)' }) },
       { key: 'city', label: 'City', validate: oneOf('City', CITY_NAMES) },
     ],
     sample: [{ name: 'New Store Ltd', type: 'Merchant', contact: 'Ali Raza', email: 'ali@newstore.example.com', phone: '+92 300 5551234', city: 'Lahore' }],

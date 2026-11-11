@@ -6,8 +6,12 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import clsx from 'clsx';
 import { Modal, Drawer } from '../ui/index.jsx';
+import {
+  CNIC_MESSAGE, CNIC_RE, EMAIL_MESSAGE, PASSWORD_MESSAGE, PHONE_MESSAGE, cleanPhoneInput, isEmail, isPhone, isStrongPassword, phoneInputProps,
+} from '../../utils/validation.js';
+import { formatCnic } from '../../utils/format.js';
 
-/** field: { name, label, type?, options?, required?, min?, max?, placeholder?, full?, help?, email? } */
+/** field: { name, label, type?, options?, required?, min?, max?, placeholder?, full?, help?, email?, phone?, cnic?, password?, maxLength? } */
 export function buildSchema(fields) {
   const shape = {};
   fields.forEach((f) => {
@@ -25,7 +29,11 @@ export function buildSchema(fields) {
       let s = z.string({ required_error: `${f.label} is required` }).trim();
       if (f.required) s = s.min(1, `${f.label} is required`);
       // Format checks skip blank values: emptiness is the "required" rule's job.
-      if (f.email) s = s.refine((v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), 'Enter a valid email address');
+      if (f.maxLength) s = s.max(f.maxLength, `${f.label} must be at most ${f.maxLength} characters`);
+      if (f.email) s = s.refine((v) => !v || isEmail(v), EMAIL_MESSAGE);
+      if (f.phone) s = s.refine((v) => !v || isPhone(v), PHONE_MESSAGE);
+      if (f.cnic) s = s.refine((v) => !v || CNIC_RE.test(v), CNIC_MESSAGE);
+      if (f.password) s = z.string({ required_error: `${f.label} is required` }).refine((v) => (!f.required && !v) || isStrongPassword(v), PASSWORD_MESSAGE);
       if (f.pattern) s = s.refine((v) => !v || f.pattern.test(v), f.patternMessage || `${f.label} is not valid`);
       shape[f.name] = s;
     }
@@ -63,9 +71,24 @@ export function FieldRow({ field, register, error }) {
         </select>
       )}
       {field.type === 'textarea' && <textarea rows={field.rows || 3} className={cls} placeholder={field.placeholder} {...a11y} {...register(field.name)} />}
-      {!['select', 'textarea'].includes(field.type) && (
-        <input type={field.type === 'number' ? 'number' : field.type || 'text'} step={field.type === 'number' ? field.step || 'any' : undefined} className={cls} placeholder={field.placeholder} {...a11y} {...register(field.name)} />
-      )}
+      {!['select', 'textarea'].includes(field.type) && (() => {
+        const reg = register(field.name);
+        // Phone and CNIC are cleaned while typing so impossible values cannot be entered.
+        const clean = field.phone ? cleanPhoneInput : field.cnic ? formatCnic : null;
+        const extra = field.phone ? phoneInputProps : field.cnic ? { inputMode: 'numeric', maxLength: 15, placeholder: '35202-1234567-1' } : { maxLength: field.maxLength };
+        return (
+          <input
+            type={field.type === 'number' ? 'number' : field.type || 'text'}
+            step={field.type === 'number' ? field.step || 'any' : undefined}
+            className={cls}
+            {...extra}
+            placeholder={field.placeholder || extra.placeholder}
+            {...a11y}
+            {...reg}
+            onChange={clean ? (e) => { e.target.value = clean(e.target.value); return reg.onChange(e); } : reg.onChange}
+          />
+        );
+      })()}
       {field.help && !error && <p className="mt-1 text-xs text-ink-muted">{field.help}</p>}
       <FieldError message={error?.message} />
     </div>
@@ -77,7 +100,7 @@ const blankFor = (f) => (f.type === 'checkbox' ? false : '');
 export function EntityForm({ fields, defaultValues, onSubmit, formId, schema, columns = 2 }) {
   const resolver = useMemo(() => zodResolver(schema || buildSchema(fields)), [fields, schema]);
   const initial = () => Object.fromEntries(fields.map((f) => [f.name, defaultValues?.[f.name] ?? f.default ?? blankFor(f)]));
-  const { register, handleSubmit, reset, formState: { errors } } = useForm({ resolver, defaultValues: initial() });
+  const { register, handleSubmit, reset, formState: { errors } } = useForm({ resolver, defaultValues: initial(), mode: 'onTouched' });
   // Re-seed when the dialog opens for a different record.
   const seedKey = JSON.stringify(defaultValues ?? null); // by value: callers pass inline objects
   useEffect(() => { reset(initial()); /* eslint-disable-next-line */ }, [seedKey]);

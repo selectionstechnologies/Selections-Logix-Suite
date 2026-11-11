@@ -51,6 +51,17 @@ export const PAYMENT_METHODS = [
   { value: 'cod-deduct', label: 'Deduct from COD', hint: 'Charges are taken out of the COD remittance' },
 ];
 export const paymentMethodLabel = (v) => PAYMENT_METHODS.find((p) => p.value === v)?.label || v;
+// Shipping plans are set on the customer account, so the booking form fills these in by itself.
+// paymentType / method / service: what the plan fixes. Anything not listed is still chosen per parcel.
+export const SHIPPING_PLANS = [
+  { value: 'cod', label: 'COD', hint: 'Rider collects the goods amount. Delivery charges are deducted from the COD.', paymentType: 'cod', method: 'cod-deduct' },
+  { value: 'shipment', label: 'Shipment', hint: 'Standard prepaid parcels. Charges are paid at booking (cash or online).', paymentType: 'prepaid' },
+  { value: 'corporate', label: 'Corporate', hint: 'Charges are billed to the account on the monthly invoice (uses the credit limit).', paymentType: 'prepaid', method: 'credit' },
+  { value: 'cargo', label: 'Cargo', hint: 'Heavy or bulk goods sent Economy (ground). Payment is chosen per booking.', paymentType: 'prepaid', service: 'economy' },
+];
+export const shippingPlan = (v) => SHIPPING_PLANS.find((p) => p.value === v);
+export const shippingPlanLabel = (v) => shippingPlan(v)?.label || v;
+
 export const ONLINE_CHANNELS = ['JazzCash', 'Easypaisa', 'Bank Transfer', 'Card / POS'];
 
 export const DEFAULT_RATE_CARD = {
@@ -76,7 +87,22 @@ export const DEFAULT_RATE_CARD = {
   taxPct: 16,
   markupPct: 0,
   costPct: 68, // internal cost as a share of freight, used for profit reporting
+  // Overrides for a destination city or province / state. Blank fields fall back to the card.
+  // { id, scope: 'city' | 'region', value, sameDay, nextDay, economy, international, fuelPct, taxPct, remoteCharge, active }
+  areaRates: [],
 };
+
+const num = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Number(v));
+
+/** Active rules for the destination: its city rule and its province / state rule (either may be null). */
+export function areaRulesFor(card, destCity) {
+  const rules = (card?.areaRates || []).filter((r) => r.active !== false);
+  const city = CITY_MAP[destCity];
+  return {
+    city: rules.find((r) => r.scope === 'city' && r.value === destCity) || null,
+    region: (city && rules.find((r) => r.scope === 'region' && r.value === city.region)) || null,
+  };
+}
 
 const ZONE_KEY = { 'same-day': 'sameDay', 'next-day': 'nextDay', economy: 'economy', international: 'international' };
 
@@ -129,10 +155,18 @@ export function quote(input, card = DEFAULT_RATE_CARD, override = null) {
 
   const discount = 1 - (Number(override?.discountPct) || 0) / 100;
   const markup = 1 + (Number(card.markupPct) || 0) / 100;
-  const base = (Number(zone[ZONE_KEY[effectiveService]]) || 0) * discount * markup;
+  // A city / province rule replaces any value it sets; blank values keep the card's.
+  // Each value: city rule, else province / state rule, else the card. Cross-border ignores area rules.
+  const area = zoneId === 'X' ? { city: null, region: null } : areaRulesFor(card, destCity);
+  const pick = (key) => num(area.city?.[key]) ?? num(area.region?.[key]);
+  const rule = area.city || area.region;
+  const baseRate = pick(ZONE_KEY[effectiveService]) ?? (Number(zone[ZONE_KEY[effectiveService]]) || 0);
+  const fuelPct = pick('fuelPct') ?? (Number(card.fuelPct) || 0);
+  const taxPct = pick('taxPct') ?? (Number(card.taxPct) || 0);
+  const base = baseRate * discount * markup;
   const weightCharge = slabCharge(chargeable, card.slabs) * discount * markup;
-  const fuel = ((base + weightCharge) * (Number(card.fuelPct) || 0)) / 100;
-  const remote = CITY_MAP[destCity]?.remote ? Number(card.remoteCharge) || 0 : 0;
+  const fuel = ((base + weightCharge) * fuelPct) / 100;
+  const remote = pick('remoteCharge') ?? (CITY_MAP[destCity]?.remote ? Number(card.remoteCharge) || 0 : 0);
 
   const codPKR = (Number(cod) || 0) * fx;
   const codFeeValue = override?.codFeePct != null && override?.codFeePct !== '' ? Number(override.codFeePct) : Number(card.codFeeValue);
@@ -144,7 +178,7 @@ export function quote(input, card = DEFAULT_RATE_CARD, override = null) {
   const insuranceFee = insurance ? ((Number(declaredValue) || 0) * fx * (Number(card.insurancePct) || 0)) / 100 : 0;
   const packagingFee = PACKAGING.find((p) => p.value === packaging)?.fee || 0;
   const subtotal = base + weightCharge + fuel + remote + codFee + insuranceFee + packagingFee;
-  const tax = (subtotal * (Number(card.taxPct) || 0)) / 100;
+  const tax = (subtotal * taxPct) / 100;
   const total = subtotal + tax;
   const cost = ((base + weightCharge + fuel + remote) * (Number(card.costPct) || 68)) / 100;
 
@@ -160,6 +194,9 @@ export function quote(input, card = DEFAULT_RATE_CARD, override = null) {
     total: currency === 'PKR' ? totalRounded : Math.round(totalRounded * 100) / 100,
     cost: out(cost),
     zone: zoneId,
+    fuelPct,
+    taxPct,
+    areaRule: rule ? { scope: rule.scope, value: rule.value } : null,
     chargeableWeight: Math.round(chargeable * 100) / 100,
     effectiveService,
     rawTotal: total,

@@ -8,7 +8,7 @@ import { PrintPreview, Sheet } from '../../components/print/index.jsx';
 import { useData } from '../../store/dataStore.js';
 import { toast } from '../../store/uiStore.js';
 import { useMoney } from '../../hooks/useApp.js';
-import { CUSTOMS_STAGES, HS_CODES } from '../../data/operations.js';
+import { CUSTOMS_STAGES, HS_CODES } from '../../data/config.js';
 import { fmtCurrency, fmtDate, uid } from '../../utils/format.js';
 
 const DOC_CHECKLIST = ['Commercial Invoice', 'Packing List', 'Bill of Lading / AWB', 'Certificate of Origin', 'Import Permit'];
@@ -135,7 +135,7 @@ function HsLookup() {
   }, [q]);
   return (
     <div className="grid items-start gap-4 lg:grid-cols-2">
-      <Card title="HS code lookup (sample data)" bodyClass="">
+      <Card title="HS code lookup" bodyClass="">
         <div className="relative border-b border-line p-3">
           <Search size={15} className="absolute start-5 top-5 text-gray-400" aria-hidden />
           <input aria-label="Search HS codes" className="input !ps-8" placeholder="Search by code or description" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -159,7 +159,7 @@ function HsLookup() {
         <div className="flex justify-between py-1 text-sm"><span className="text-ink-muted">Duty ({hs.duty}%)</span><span>{money(d.duty)}</span></div>
         <div className="flex justify-between py-1 text-sm"><span className="text-ink-muted">Sales tax ({hs.tax}%, on value + duty)</span><span>{money(d.tax)}</span></div>
         <div className="mt-1 flex justify-between border-t border-line pt-2 font-bold"><span>Total payable</span><span>{money(d.total)}</span></div>
-        <p className="mt-3 text-xs text-ink-muted">Rates are dummy values for the demo, not current tariffs.</p>
+        <p className="mt-3 text-xs text-ink-muted">Reference rates only. Check current tariffs before quoting.</p>
       </Card>
     </div>
   );

@@ -13,7 +13,7 @@ import { AreaTrend, BarsChart, CHART, DonutChart, LinesChart } from '../../compo
 import { agingBuckets, dailySeries, invoiceBalance, merchantStats, riderStats, shipmentKpis, statusMix, topBy } from '../../data/helpers.js';
 import { fmtCompact, fmtCurrency, fmtDate, fmtNumber, fmtPct, sum, toPKR } from '../../utils/format.js';
 import { NDR_GROUP, STATUS } from '../../utils/status.js';
-import { stockStatus } from '../../data/operations.js';
+import { stockStatus } from '../../data/config.js';
 
 function RecentShipments({ list, limit = 6 }) {
   const { money } = useMoney();
@@ -268,11 +268,17 @@ function MerchantDashboard() {
   );
 }
 
+// The rider record arrives from the database just after sign-in; wait for it instead of crashing.
 function RiderDashboard() {
-  const navigate = useNavigate();
   const user = useAuth((s) => s.user);
-  const { riders, shipments, codTransactions } = useData();
-  const rider = riders.find((r) => r.id === user.riderId);
+  const rider = useData((s) => s.riders.find((r) => r.id === user.riderId));
+  if (!rider) return <Card><p className="text-sm text-ink-muted">{user.riderId ? 'Loading your rider profile...' : 'This login is not linked to a rider record. Ask the Super Admin to check your account.'}</p></Card>;
+  return <RiderDashboardFor rider={rider} />;
+}
+
+function RiderDashboardFor({ rider }) {
+  const navigate = useNavigate();
+  const { shipments, codTransactions } = useData();
   const stats = riderStats(rider, shipments, codTransactions);
   const mine = shipments.filter((s) => s.riderId === rider.id);
   const pickups = shipments.filter((s) => s.pickupRiderId === rider.id && s.status === STATUS.BOOKED);

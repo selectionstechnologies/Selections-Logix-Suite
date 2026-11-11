@@ -1,9 +1,9 @@
-// Merchant self-service. Admins opening these screens preview the first demo merchant.
+// Merchant self-service. Staff opening these screens preview the first customer account.
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Copy, Eye, HandCoins, KeyRound, Plug, Plus, RefreshCw, Store } from 'lucide-react';
 import DataTable from '../../components/tables/DataTable.jsx';
-import { Card, PageHeader, StatCard, StatusBadge } from '../../components/ui/index.jsx';
+import { Card, EmptyState, PageHeader, StatCard, StatusBadge } from '../../components/ui/index.jsx';
 import { FormModal } from '../../components/forms/EntityForm.jsx';
 import { useAuth } from '../../store/authStore.js';
 import { useData } from '../../store/dataStore.js';
@@ -13,9 +13,11 @@ import { invoiceBalance, merchantStats } from '../../data/helpers.js';
 import { fmtDate, fmtDateTime, toPKR, sum, uid } from '../../utils/format.js';
 import { AddressBook } from './index.jsx';
 
+// A merchant sees their own account; staff previewing the portal see the first customer.
 function useMerchantId() {
   const user = useAuth((s) => s.user);
-  return user.merchantId || 'M001';
+  const firstId = useData((s) => s.merchants[0]?.id);
+  return user.role === 'merchant' ? user.merchantId : firstId;
 }
 
 function PreviewNote() {
@@ -192,8 +194,13 @@ export function PortalTickets() {
 
 export function PortalIntegrations() {
   const merchantId = useMerchantId();
-  const { merchants, updateItem, storeIntegrations } = useData();
-  const m = merchants.find((x) => x.id === merchantId);
+  const m = useData((s) => s.merchants.find((x) => x.id === merchantId));
+  if (!m) return <EmptyState icon={Plug} title="No customer account" message="API keys and store connections appear once a customer account is linked." />;
+  return <PortalIntegrationsFor m={m} />;
+}
+
+function PortalIntegrationsFor({ m }) {
+  const { updateItem, storeIntegrations } = useData();
   const [revealed, setRevealed] = useState(false);
   const copy = async () => {
     try {
@@ -221,7 +228,7 @@ export function PortalIntegrations() {
       <PageHeader title="API & Integrations" subtitle="Connect your store or call the booking API." />
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <Card title="API key">
-          <p className="mb-2 flex items-center gap-2 text-sm text-ink-muted"><KeyRound size={15} aria-hidden /> Keep this private. It is a demo value and calls no real service.</p>
+          <p className="mb-2 flex items-center gap-2 text-sm text-ink-muted"><KeyRound size={15} aria-hidden /> Keep this private. The public API is not live yet.</p>
           <code className="mb-3 block break-all rounded-lg bg-gray-100 px-3 py-2 text-sm">{revealed ? m.apiKey : `${m.apiKey.slice(0, 12)}${'•'.repeat(16)}`}</code>
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-outline btn-sm" onClick={() => setRevealed((r) => !r)}><Eye size={13} aria-hidden /> {revealed ? 'Hide' : 'Reveal'}</button>
@@ -242,7 +249,7 @@ export function PortalIntegrations() {
           </ul>
         </Card>
       </div>
-      <div className="mt-6"><AddressBook merchantId={merchantId} /></div>
+      <div className="mt-6"><AddressBook merchantId={m.id} /></div>
     </div>
   );
 }

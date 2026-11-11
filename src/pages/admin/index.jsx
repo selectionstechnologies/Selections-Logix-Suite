@@ -8,14 +8,14 @@ import { useAuth } from '../../store/authStore.js';
 import { useData } from '../../store/dataStore.js';
 import { confirm, toast } from '../../store/uiStore.js';
 import { useLookups } from '../../hooks/useApp.js';
-import { ROLE_LABELS } from '../../data/people.js';
-import { ACTIONS, MODULES, defaultPermissions } from '../../data/operations.js';
+import { ROLE_LABELS } from '../../data/config.js';
+import { ACTIONS, MODULES, defaultPermissions } from '../../data/config.js';
 import { SHIPMENT_STATUSES } from '../../utils/status.js';
 import { fmtDateTime, groupBy, uid } from '../../utils/format.js';
 
 const ROLE_OPTIONS = Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label }));
 
-function PermissionMatrix() {
+export function PermissionMatrix() {
   const { permissions, setValue } = useData();
   const [role, setRole] = useState('branch_manager');
   const locked = role === 'super_admin';
@@ -120,7 +120,7 @@ export function AuditLog() {
   const users = [...new Set(auditLog.map((a) => a.user))].sort();
   return (
     <div>
-      <PageHeader title="Audit Log" subtitle="Who changed what, including cash and status changes. Your own actions appear here as you use the demo." />
+      <PageHeader title="Audit Log" subtitle="Who changed what, including cash and status changes. Actions in this browser are listed here." />
       <DataTable
         data={auditLog}
         exportName="audit-log"
@@ -172,7 +172,7 @@ export function SystemSettings() {
   return (
     <div>
       <PageHeader title="Settings" />
-      <Tabs value={tab} onChange={setTab} tabs={[{ value: 'company', label: 'Company' }, { value: 'billing', label: 'Invoicing & tax' }, { value: 'labels', label: 'Labels & statuses' }, { value: 'notify', label: 'Notifications' }, { value: 'demo', label: 'Demo data' }]} />
+      <Tabs value={tab} onChange={setTab} tabs={[{ value: 'company', label: 'Company' }, { value: 'billing', label: 'Invoicing & tax' }, { value: 'labels', label: 'Labels & statuses' }, { value: 'notify', label: 'Notifications' }, { value: 'demo', label: 'Local data' }]} />
       {(tab === 'company' || tab === 'billing' || tab === 'labels') && (
         <form onSubmit={handleSubmit(save)} noValidate>
           {tab === 'company' && (
@@ -230,9 +230,9 @@ export function SystemSettings() {
         </Card>
       )}
       {tab === 'demo' && (
-        <Card title="Demo data">
-          <p className="mb-3 text-sm text-ink-muted">Your changes are kept in this browser. Resetting restores the original sample data and deletes everything you added.</p>
-          <button type="button" className="btn-danger" onClick={async () => { if (await confirm({ title: 'Reset all demo data?', message: 'Everything you booked, edited or deleted in this browser will be lost.', confirmLabel: 'Reset data' })) { resetDemo(); reset(useData.getState().settings); toast.success('Demo data restored'); } }}><RotateCcw size={15} aria-hidden /> Reset demo data</button>
+        <Card title="Local data">
+          <p className="mb-3 text-sm text-ink-muted">Shipments, COD, warehouse and the other operational records are still saved in this browser until those modules move to the database. Clearing them deletes them from this browser and resets settings. Users, branches and customer accounts in the database are not affected.</p>
+          <button type="button" className="btn-danger" onClick={async () => { if (await confirm({ title: 'Clear local data?', message: 'All shipments and other operational records saved in this browser will be deleted.', confirmLabel: 'Clear data' })) { resetDemo(); reset(useData.getState().settings); toast.success('Local data cleared'); } }}><RotateCcw size={15} aria-hidden /> Clear local data</button>
         </Card>
       )}
     </div>
@@ -247,11 +247,11 @@ export function Integrations() {
     if (connected && !(await confirm({ title: `Disconnect ${i.name}?`, message: 'It will stop syncing until it is connected again.', confirmLabel: 'Disconnect' }))) return;
     const status = connected ? 'Disconnected' : 'Connected';
     updateItem('integrations', i.id, { status }, 'Integration', `${i.name} ${status}`);
-    toast.success(`${i.name} ${status.toLowerCase()} (demo only)`);
+    toast.success(`${i.name} ${status.toLowerCase()} (not live yet)`);
   };
   return (
     <div>
-      <PageHeader title="Integrations" subtitle="Connect and disconnect screens only. Nothing calls a live service in this demo." />
+      <PageHeader title="Integrations" subtitle="Connect and disconnect screens only. Nothing calls a live service yet." />
       <div className="grid items-start gap-4 lg:grid-cols-2">
         {Object.entries(groups).map(([group, list]) => (
           <Card key={group} title={group} bodyClass="">

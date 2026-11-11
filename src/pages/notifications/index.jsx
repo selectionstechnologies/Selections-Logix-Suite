@@ -7,7 +7,7 @@ import { Card, EmptyState, Modal, PageHeader, Tabs, Toggle } from '../../compone
 import { useData } from '../../store/dataStore.js';
 import { toast } from '../../store/uiStore.js';
 import { useCan } from '../../hooks/useApp.js';
-import { CHANNELS, TEMPLATE_VARS } from '../../data/operations.js';
+import { CHANNELS, TEMPLATE_VARS } from '../../data/config.js';
 import { fillTemplate, fmtDateTime, fmtTimeAgo, uid } from '../../utils/format.js';
 
 export function NotificationCenter() {
@@ -45,7 +45,7 @@ export function NotificationCenter() {
   );
 }
 
-const SAMPLE_VARS = { name: 'Sara Ali', awb: 'SLX100123', merchant: 'Noor Cosmetics', city: 'Lahore', eta: '12 Nov', cod: 'Rs 3,500', link: 'selections.demo/track/SLX100123' };
+const SAMPLE_VARS = { name: 'Sara Ali', awb: 'SLX100123', merchant: 'Noor Cosmetics', city: 'Lahore', eta: '12 Nov', cod: 'Rs 3,500', link: 'yourdomain.com/track/SLX100123' };
 
 export function Templates() {
   const { templates, updateItem, addItem } = useData();

@@ -13,14 +13,13 @@ import { invoiceBalance, merchantStats } from '../../data/helpers.js';
 import { fmtDate, fmtDateTime, fmtNumber, fmtPct, uid } from '../../utils/format.js';
 import { shipmentColumns } from '../shipments/columns.jsx';
 
-const PHONE = /^\+?[0-9][0-9\s-]{8,16}$/;
 const FIELDS = [
   { name: 'name', label: 'Business / customer name', required: true, full: true },
   { name: 'type', label: 'Type', type: 'select', options: ['Merchant', 'Individual', 'Corporate'], required: true },
   { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive', 'Suspended'], required: true, default: 'Active' },
   { name: 'contact', label: 'Contact person', required: true },
   { name: 'email', label: 'Email', required: true, email: true },
-  { name: 'phone', label: 'Phone', required: true, pattern: PHONE, patternMessage: 'Enter a valid phone number' },
+  { name: 'phone', label: 'Phone', required: true, phone: true },
   { name: 'city', label: 'City', type: 'select', options: CITY_NAMES, required: true },
   { name: 'address', label: 'Address', required: true, full: true },
   { name: 'bank', label: 'Bank' },
@@ -315,7 +314,7 @@ export function AddressBook({ merchantId: lockedId }) {
         title="Add receiver"
         fields={[
           { name: 'name', label: 'Name', required: true },
-          { name: 'phone', label: 'Phone', required: true, pattern: PHONE, patternMessage: 'Enter a valid phone number' },
+          { name: 'phone', label: 'Phone', required: true, phone: true },
           { name: 'address', label: 'Address', required: true, full: true },
           { name: 'city', label: 'City', type: 'select', options: CITY_NAMES, required: true },
         ]}

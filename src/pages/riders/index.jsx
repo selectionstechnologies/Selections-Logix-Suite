@@ -16,10 +16,9 @@ import { NDR_GROUP, STATUS } from '../../utils/status.js';
 import { fmtDate, fmtDateTime, fmtPct, sum, uid } from '../../utils/format.js';
 import { shipmentColumns } from '../shipments/columns.jsx';
 
-const PHONE = /^\+?[0-9][0-9\s-]{8,16}$/;
 const riderFields = (branchOptions) => [
   { name: 'name', label: 'Full name', required: true },
-  { name: 'phone', label: 'Phone', required: true, pattern: PHONE, patternMessage: 'Enter a valid phone number' },
+  { name: 'phone', label: 'Phone', required: true, phone: true },
   { name: 'branchId', label: 'Branch', type: 'select', options: branchOptions, required: true },
   { name: 'zone', label: 'Zone', required: true },
   { name: 'vehicle', label: 'Vehicle', type: 'select', options: ['Motorcycle', 'Van', 'Bicycle'], required: true },

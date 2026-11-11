@@ -191,11 +191,21 @@ function StopCard({ s, kind, onDeliver, onFail, onPicked }) {
   );
 }
 
+// Riders see their own run; other roles preview the first rider's. A rider's record arrives
+// from the database just after sign-in, so wait for it instead of crashing.
 export function RiderApp() {
   const user = useAuth((s) => s.user);
-  const { riders, shipments, codTransactions, changeStatus } = useData();
-  const riderId = user.riderId || riders[0].id;
+  const riders = useData((s) => s.riders);
+  const riderId = user.role === 'rider' ? user.riderId : riders[0]?.id;
   const rider = riders.find((r) => r.id === riderId);
+  if (!rider) return <EmptyState title={user.riderId || user.role !== 'rider' ? 'Loading rider profile...' : 'No rider record linked'} message={user.role === 'rider' && !user.riderId ? 'Ask the Super Admin to check your account.' : undefined} />;
+  return <RiderRun rider={rider} />;
+}
+
+function RiderRun({ rider }) {
+  const user = useAuth((s) => s.user);
+  const { shipments, codTransactions, changeStatus } = useData();
+  const riderId = rider.id;
   const [tab, setTab] = useState('deliveries');
   const [deliver, setDeliver] = useState(null);
   const [fail, setFail] = useState(null);

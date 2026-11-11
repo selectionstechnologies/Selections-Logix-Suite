@@ -3,15 +3,15 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Selections Logix Suite - logistics management frontend (mock data). Ship. Collect. Control.",
+  "description": "Selections Logix Suite - logistics management (Supabase). Ship. Collect. Control.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "check:data": "node scripts/check-data.mjs"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
+    "@supabase/supabase-js": "^2.119.0",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "html2canvas": "^1.4.1",

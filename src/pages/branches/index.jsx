@@ -13,7 +13,7 @@ import { confirm, toast } from '../../store/uiStore.js';
 import { useLookups, useMoney } from '../../hooks/useApp.js';
 import { BRANCH_TYPES, CITY_NAMES } from '../../data/geo.js';
 import { branchStats, dailySeries, riderStats } from '../../data/helpers.js';
-import { stockStatus } from '../../data/operations.js';
+import { stockStatus } from '../../data/config.js';
 import { fmtDate, fmtNumber, fmtPct } from '../../utils/format.js';
 import { shipmentColumns } from '../shipments/columns.jsx';
 
@@ -25,7 +25,7 @@ const BRANCH_FIELDS = [
   { name: 'status', label: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true, default: 'Active' },
   { name: 'address', label: 'Address', required: true, full: true },
   { name: 'manager', label: 'Manager', required: true },
-  { name: 'phone', label: 'Phone', required: true, pattern: /^\+?[0-9][0-9\s-]{8,16}$/, patternMessage: 'Enter a valid phone number' },
+  { name: 'phone', label: 'Phone', required: true, phone: true },
   { name: 'hours', label: 'Working hours', required: true, placeholder: '09:00 - 18:00' },
   { name: 'targetShipments', label: 'Target shipments', type: 'number', min: 0 },
 ];

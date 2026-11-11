@@ -168,7 +168,7 @@ export function Reports() {
           { name: 'format', label: 'Format', type: 'select', options: ['Excel', 'PDF'], required: true },
           { name: 'recipients', label: 'Recipient email', required: true, email: true, full: true },
         ]}
-        onSubmit={(v) => { addItem('scheduledReports', { id: uid('SR'), ...v, status: 'Scheduled' }, 'Report', `${v.report} scheduled`); setScheduling(false); toast.success('Report scheduled (demo: nothing is emailed)'); }}
+        onSubmit={(v) => { addItem('scheduledReports', { id: uid('SR'), ...v, status: 'Scheduled' }, 'Report', `${v.report} scheduled`); setScheduling(false); toast.success('Report scheduled (email delivery is not set up yet)'); }}
       />
     </div>
   );

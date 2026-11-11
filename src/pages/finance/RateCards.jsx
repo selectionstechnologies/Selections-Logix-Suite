@@ -9,7 +9,9 @@ import { FieldError, FormModal } from '../../components/forms/EntityForm.jsx';
 import { useData } from '../../store/dataStore.js';
 import { confirm, toast } from '../../store/uiStore.js';
 import { useLookups } from '../../hooks/useApp.js';
-import { CITY_NAMES } from '../../data/geo.js';
+import { CITIES, CITY_NAMES } from '../../data/geo.js';
+import { useAuth } from '../../store/authStore.js';
+import { savePricing } from '../../lib/api.js';
 import { quote, serviceLabel, SERVICES } from '../../utils/pricing.js';
 import { fmtCurrency, uid } from '../../utils/format.js';
 
@@ -25,40 +27,65 @@ const rulesSchema = z.object({
   markupPct: pct,
 });
 
-function RuleField({ name, label, register, errors }) {
+const REGIONS = [...new Set(CITIES.map((c) => c.region))];
+const AREA_OPTIONS = [
+  ...CITY_NAMES.map((c) => ({ value: `city:${c}`, label: `City: ${c}` })),
+  ...REGIONS.map((rg) => ({ value: `region:${rg}`, label: `Province / state: ${rg}` })),
+];
+const areaLabel = (a) => `${a.scope === 'city' ? 'City' : 'Province / state'}: ${a.value}`;
+const blankIsCard = (v) => (v === '' || v == null ? 'card rate' : v);
+
+/** Updates the screen at once, saves to the database, and puts the old card back if that fails. */
+function usePersistCard() {
+  const { rateCard, setValue } = useData();
+  return async (card, detail, okMessage) => {
+    const prev = rateCard;
+    setValue('rateCard', card, 'Rate Card', detail);
+    try {
+      await savePricing(card);
+      if (okMessage) toast.success(okMessage);
+      return true;
+    } catch (e) {
+      setValue('rateCard', prev, 'Rate Card', 'Change not saved');
+      toast.error(`Not saved: ${e.message}`);
+      return false;
+    }
+  };
+}
+
+function RuleField({ name, label, register, errors, disabled }) {
   return (
     <div>
       <label htmlFor={name} className="label">{label}</label>
-      <input id={name} type="number" step="any" className={clsx('input', errors[name] && 'input-error')} {...register(name)} />
+      <input id={name} type="number" step="any" disabled={disabled} className={clsx('input', errors[name] && 'input-error')} {...register(name)} />
       <FieldError message={errors[name]?.message} />
     </div>
   );
 }
 
-function RulesForm() {
-  const { rateCard, setValue } = useData();
+function RulesForm({ canEdit }) {
+  const { rateCard } = useData();
+  const persist = usePersistCard();
   const { register, handleSubmit, formState: { errors, isDirty }, reset } = useForm({ resolver: zodResolver(rulesSchema), defaultValues: rateCard });
-  const save = (v) => {
-    setValue('rateCard', { ...rateCard, ...v }, 'Rate Card', `Pricing rules updated (fuel ${v.fuelPct}%, COD ${v.codFeeValue})`);
-    reset(v);
-    toast.success('Pricing rules saved. New bookings use them immediately.');
+  const save = async (v) => {
+    if (await persist({ ...rateCard, ...v }, `Pricing rules updated (fuel ${v.fuelPct}%, COD ${v.codFeeValue})`, 'Pricing rules saved. New bookings use them immediately.')) reset(v);
   };
   return (
     <form onSubmit={handleSubmit(save)} noValidate>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <label htmlFor="codFeeType" className="label">COD fee type</label>
-          <select id="codFeeType" className="input" {...register('codFeeType')}><option value="percent">Percent of COD</option><option value="flat">Flat (PKR)</option></select>
+          <select id="codFeeType" className="input" disabled={!canEdit} {...register('codFeeType')}><option value="percent">Percent of COD</option><option value="flat">Flat (PKR)</option></select>
         </div>
-        <RuleField name="codFeeValue" label="COD fee value" register={register} errors={errors} />
-        <RuleField name="codFeeMin" label="COD fee minimum (PKR)" register={register} errors={errors} />
-        <RuleField name="fuelPct" label="Fuel surcharge %" register={register} errors={errors} />
-        <RuleField name="remoteCharge" label="Remote-area charge (PKR)" register={register} errors={errors} />
-        <RuleField name="insurancePct" label="Insurance %" register={register} errors={errors} />
-        <RuleField name="taxPct" label="Tax %" register={register} errors={errors} />
-        <RuleField name="markupPct" label="Markup %" register={register} errors={errors} />
+        <RuleField disabled={!canEdit} name="codFeeValue" label="COD fee value" register={register} errors={errors} />
+        <RuleField disabled={!canEdit} name="codFeeMin" label="COD fee minimum (PKR)" register={register} errors={errors} />
+        <RuleField disabled={!canEdit} name="fuelPct" label="Fuel surcharge %" register={register} errors={errors} />
+        <RuleField disabled={!canEdit} name="remoteCharge" label="Remote-area charge (PKR)" register={register} errors={errors} />
+        <RuleField disabled={!canEdit} name="insurancePct" label="Insurance %" register={register} errors={errors} />
+        <RuleField disabled={!canEdit} name="taxPct" label="Tax %" register={register} errors={errors} />
+        <RuleField disabled={!canEdit} name="markupPct" label="Markup %" register={register} errors={errors} />
       </div>
-      <button type="submit" className="btn-primary mt-4" disabled={!isDirty}>Save rules</button>
+      {canEdit && <button type="submit" className="btn-primary mt-4" disabled={!isDirty}>Save rules</button>}
     </form>
   );
 }
@@ -90,48 +117,69 @@ function Calculator() {
 
 export function RateCards() {
   const lookups = useLookups();
-  const { rateCard, setValue, merchantOverrides, addItem, updateItem, removeItem } = useData();
+  const { rateCard, merchantOverrides, addItem, updateItem, removeItem } = useData();
+  const persist = usePersistCard();
+  const canEdit = useAuth((st) => st.user.role) === 'super_admin';
+  const areaRates = rateCard.areaRates || [];
+  const [editArea, setEditArea] = useState(null); // {} = new
   const [tab, setTab] = useState('zones');
   const [editZone, setEditZone] = useState(null);
   const [editSlab, setEditSlab] = useState(null);
   const [override, setOverride] = useState(null); // {} = new
 
-  const saveSlab = (v) => {
+  const saveSlab = async (v) => {
     const slabs = editSlab.id ? rateCard.slabs.map((s) => (s.id === editSlab.id ? { ...s, ...v } : s)) : [...rateCard.slabs, { id: uid('S'), ...v }];
-    setValue('rateCard', { ...rateCard, slabs }, 'Rate Card', 'Weight slabs updated');
-    setEditSlab(null);
-    toast.success('Weight slab saved');
+    if (await persist({ ...rateCard, slabs }, 'Weight slabs updated', 'Weight slab saved')) setEditSlab(null);
   };
   const delSlab = async (s) => {
     if (rateCard.slabs.length === 1) { toast.error('Keep at least one weight slab'); return; }
     if (await confirm({ title: 'Delete slab?', message: `The up-to-${s.upTo} kg slab will be removed.`, confirmLabel: 'Delete' })) {
-      setValue('rateCard', { ...rateCard, slabs: rateCard.slabs.filter((x) => x.id !== s.id) }, 'Rate Card', 'Weight slab deleted');
-      toast.success('Slab deleted');
+      await persist({ ...rateCard, slabs: rateCard.slabs.filter((x) => x.id !== s.id) }, 'Weight slab deleted', 'Slab deleted');
+    }
+  };
+
+  const saveArea = async (v) => {
+    const [scope, ...rest] = v.area.split(':');
+    const value = rest.join(':');
+    const dup = areaRates.find((a) => a.scope === scope && a.value === value && a.id !== editArea.id);
+    if (dup) { toast.error(`${areaLabel(dup)} already has a rule. Edit that one.`); return; }
+    const row = {
+      id: editArea.id || uid('AR'), scope, value, active: !!v.active,
+      sameDay: v.sameDay ?? '', nextDay: v.nextDay ?? '', economy: v.economy ?? '', international: v.international ?? '',
+      fuelPct: v.fuelPct ?? '', taxPct: v.taxPct ?? '', remoteCharge: v.remoteCharge ?? '',
+    };
+    const next = editArea.id ? areaRates.map((a) => (a.id === editArea.id ? row : a)) : [...areaRates, row];
+    if (await persist({ ...rateCard, areaRates: next }, `${areaLabel(row)} rate ${editArea.id ? 'updated' : 'added'}`, 'Area rate saved. New bookings use it immediately.')) setEditArea(null);
+  };
+  const delArea = async (a) => {
+    if (await confirm({ title: 'Remove this rate?', message: `${areaLabel(a)} goes back to the standard rate card.`, confirmLabel: 'Remove' })) {
+      await persist({ ...rateCard, areaRates: areaRates.filter((x) => x.id !== a.id) }, `${areaLabel(a)} rate removed`, 'Area rate removed');
     }
   };
 
   return (
     <div>
-      <PageHeader title="Rate Cards" subtitle="Used live by the booking form and bulk import. Existing shipments keep their booked price." />
-      <Tabs value={tab} onChange={setTab} tabs={[{ value: 'zones', label: 'Zones & services' }, { value: 'slabs', label: 'Weight slabs' }, { value: 'rules', label: 'Fees & surcharges' }, { value: 'overrides', label: 'Merchant overrides', count: merchantOverrides.length }, { value: 'calc', label: 'Calculator' }]} />
+      <PageHeader title="Rate Cards" subtitle="Saved in the database and used live by the booking form and bulk import. Existing shipments keep their booked price." />
+      {!canEdit && <p className="mb-3 rounded-lg bg-primary-light px-3 py-2 text-sm">View only. Prices are changed by the Super Admin.</p>}
+      <Tabs value={tab} onChange={setTab} tabs={[{ value: 'zones', label: 'Zones & services' }, { value: 'areas', label: 'City / province rates', count: areaRates.length }, { value: 'slabs', label: 'Weight slabs' }, { value: 'rules', label: 'Fees & surcharges' }, { value: 'overrides', label: 'Merchant overrides', count: merchantOverrides.length }, { value: 'calc', label: 'Calculator' }]} />
       {tab === 'zones' && (
         <Card title="First 0.5 kg, in PKR" bodyClass="">
           <div className="scroll-thin overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-surface text-xs text-ink-muted"><tr>{['Zone', 'Same day', 'Next day', 'Economy', 'International', ''].map((h) => <th key={h} className="whitespace-nowrap px-4 py-2 text-start font-medium">{h}</th>)}</tr></thead>
-              <tbody>{rateCard.zones.map((z) => <tr key={z.id} className="border-t border-line"><td className="whitespace-nowrap px-4 py-2 font-medium">{z.name}</td><td className="px-4 py-2">{z.sameDay}</td><td className="px-4 py-2">{z.nextDay}</td><td className="px-4 py-2">{z.economy}</td><td className="px-4 py-2">{z.international}</td><td className="px-4 py-2"><button type="button" className="btn-outline btn-sm" onClick={() => setEditZone(z)}><Pencil size={13} aria-hidden /> Edit</button></td></tr>)}</tbody>
+              <tbody>{rateCard.zones.map((z) => <tr key={z.id} className="border-t border-line"><td className="whitespace-nowrap px-4 py-2 font-medium">{z.name}</td><td className="px-4 py-2">{z.sameDay}</td><td className="px-4 py-2">{z.nextDay}</td><td className="px-4 py-2">{z.economy}</td><td className="px-4 py-2">{z.international}</td><td className="px-4 py-2">{canEdit && <button type="button" className="btn-outline btn-sm" onClick={() => setEditZone(z)}><Pencil size={13} aria-hidden /> Edit</button>}</td></tr>)}</tbody>
             </table>
           </div>
         </Card>
       )}
       {tab === 'slabs' && (
-        <Card title="Charge per kg above the first 0.5 kg" bodyClass="" actions={<button type="button" className="btn-outline btn-sm" onClick={() => setEditSlab({})}><Plus size={13} aria-hidden /> Add slab</button>}>
+        <Card title="Charge per kg above the first 0.5 kg" bodyClass="" actions={canEdit && <button type="button" className="btn-outline btn-sm" onClick={() => setEditSlab({})}><Plus size={13} aria-hidden /> Add slab</button>}>
           <ul className="divide-y divide-line">
             {[...rateCard.slabs].sort((a, b) => a.upTo - b.upTo).map((s) => (
               <li key={s.id} className="flex items-center justify-between gap-2 px-4 py-2.5 text-sm">
                 <span>Up to <b>{s.upTo >= 9999 ? 'any weight' : `${s.upTo} kg`}</b></span>
                 <span>Rs {s.perKg} / kg</span>
-                <span className="flex gap-1">
+                <span className={clsx('flex gap-1', !canEdit && 'hidden')}>
                   <button type="button" className="btn-ghost btn-sm" onClick={() => setEditSlab(s)} aria-label="Edit slab"><Pencil size={14} /></button>
                   <button type="button" className="btn-ghost btn-sm hover:!text-danger" onClick={() => delSlab(s)} aria-label="Delete slab"><Trash2 size={14} /></button>
                 </span>
@@ -140,7 +188,42 @@ export function RateCards() {
           </ul>
         </Card>
       )}
-      {tab === 'rules' && <Card title="Fees, surcharges and markup"><RulesForm /></Card>}
+      {tab === 'areas' && (
+        <Card
+          title="Rates for a destination city or province / state"
+          bodyClass=""
+          actions={canEdit && <button type="button" className="btn-outline btn-sm" onClick={() => setEditArea({ active: true })}><Plus size={13} aria-hidden /> Add rate</button>}
+        >
+          <p className="border-b border-line bg-surface px-4 py-2 text-xs text-ink-muted">
+            For each value, a city rule is used first, then its province / state rule, then the normal rate card. Leave a field blank to fall back. Cross-border shipments always use the International rate.
+          </p>
+          {!areaRates.length ? <p className="p-4 text-sm text-ink-muted">No city or province rates yet. Every destination uses the normal rate card.</p> : (
+            <div className="scroll-thin overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-surface text-xs text-ink-muted"><tr>{['Applies to', 'Same day', 'Next day', 'Economy', 'Fuel %', 'Tax %', 'Remote', 'Status', ''].map((h) => <th key={h} className="whitespace-nowrap px-4 py-2 text-start font-medium">{h}</th>)}</tr></thead>
+                <tbody>
+                  {[...areaRates].sort((a, b) => a.scope.localeCompare(b.scope) || a.value.localeCompare(b.value)).map((a) => (
+                    <tr key={a.id} className="border-t border-line">
+                      <td className="whitespace-nowrap px-4 py-2 font-medium">{areaLabel(a)}</td>
+                      {['sameDay', 'nextDay', 'economy', 'fuelPct', 'taxPct', 'remoteCharge'].map((k) => <td key={k} className={clsx('px-4 py-2', (a[k] === '' || a[k] == null) && 'text-ink-muted')}>{blankIsCard(a[k])}</td>)}
+                      <td className="px-4 py-2">{a.active === false ? 'Off' : 'On'}</td>
+                      <td className="px-4 py-2">
+                        {canEdit && (
+                          <span className="flex gap-1">
+                            <button type="button" className="btn-ghost btn-sm" onClick={() => setEditArea(a)} aria-label={`Edit ${areaLabel(a)}`}><Pencil size={14} /></button>
+                            <button type="button" className="btn-ghost btn-sm hover:!text-danger" onClick={() => delArea(a)} aria-label={`Remove ${areaLabel(a)}`}><Trash2 size={14} /></button>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+      {tab === 'rules' && <Card title="Fees, surcharges and markup"><RulesForm canEdit={canEdit} /></Card>}
       {tab === 'overrides' && (
         <Card title="Per-merchant pricing" bodyClass="" actions={<button type="button" className="btn-outline btn-sm" onClick={() => setOverride({})}><Plus size={13} aria-hidden /> Add override</button>}>
           <ul className="divide-y divide-line">
@@ -164,7 +247,25 @@ export function RateCards() {
         title={`Edit ${editZone?.name}`}
         fields={[['sameDay', 'Same day'], ['nextDay', 'Next day'], ['economy', 'Economy'], ['international', 'International']].map(([name, label]) => ({ name, label, type: 'number', required: true, min: 0 }))}
         defaultValues={editZone}
-        onSubmit={(v) => { setValue('rateCard', { ...rateCard, zones: rateCard.zones.map((z) => (z.id === editZone.id ? { ...z, ...v } : z)) }, 'Rate Card', `${editZone.name} rates updated`); setEditZone(null); toast.success('Zone rates saved'); }}
+        onSubmit={async (v) => { if (await persist({ ...rateCard, zones: rateCard.zones.map((z) => (z.id === editZone.id ? { ...z, ...v } : z)) }, `${editZone.name} rates updated`, 'Zone rates saved')) setEditZone(null); }}
+      />
+      <FormModal
+        open={!!editArea}
+        onClose={() => setEditArea(null)}
+        title={editArea?.id ? `Edit ${areaLabel(editArea)}` : 'Add city / province rate'}
+        size="lg"
+        fields={[
+          { name: 'area', label: 'Applies to (destination)', type: 'select', required: true, options: AREA_OPTIONS, full: true },
+          { name: 'sameDay', label: 'Same day: first 0.5 kg (PKR)', type: 'number', min: 0, placeholder: 'Blank = card rate' },
+          { name: 'nextDay', label: 'Next day: first 0.5 kg (PKR)', type: 'number', min: 0, placeholder: 'Blank = card rate' },
+          { name: 'economy', label: 'Economy: first 0.5 kg (PKR)', type: 'number', min: 0, placeholder: 'Blank = card rate' },
+          { name: 'remoteCharge', label: 'Remote-area charge (PKR)', type: 'number', min: 0, placeholder: 'Blank = card rule' },
+          { name: 'fuelPct', label: 'Fuel surcharge %', type: 'number', min: 0, max: 100, placeholder: `Blank = ${rateCard.fuelPct}%` },
+          { name: 'taxPct', label: 'Tax % (e.g. provincial sales tax)', type: 'number', min: 0, max: 100, placeholder: `Blank = ${rateCard.taxPct}%` },
+          { name: 'active', label: 'Rule is active', type: 'checkbox' },
+        ]}
+        defaultValues={editArea?.id ? { ...editArea, area: `${editArea.scope}:${editArea.value}` } : editArea}
+        onSubmit={saveArea}
       />
       <FormModal
         open={!!editSlab}

@@ -3,11 +3,12 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import clsx from 'clsx';
 import { Bell, ChevronRight, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search, UserCircle2, X } from 'lucide-react';
 import { useAuth } from '../../store/authStore.js';
-import { useUI, toast } from '../../store/uiStore.js';
+import { useDbSync } from '../../hooks/useDbSync.js';
+import { useUI } from '../../store/uiStore.js';
 import { useData } from '../../store/dataStore.js';
 import { useActiveBranch, useCan } from '../../hooks/useApp.js';
 import { navFor, labelForPath } from '../../routes/index.jsx';
-import { ROLE_LABELS } from '../../data/people.js';
+import { ROLE_LABELS } from '../../data/config.js';
 import { CURRENCIES, fmtTimeAgo } from '../../utils/format.js';
 import { ErrorBoundary } from './Fallbacks.jsx';
 import { PageSkeleton } from '../ui/index.jsx';
@@ -225,9 +226,7 @@ function ProfileMenu() {
   const activeBranch = useActiveBranch();
   const navigate = useNavigate();
   const user = useAuth((s) => s.user);
-  const loginAs = useAuth((s) => s.loginAs);
   const logout = useAuth((s) => s.logout);
-  const setBranch = useUI((s) => s.setBranch);
   const [open, setOpen] = useState(false);
   const ref = useOutside(() => setOpen(false));
   return (
@@ -258,18 +257,8 @@ function ProfileMenu() {
               </select>
             )}
           </div>
-          <p className="mt-1 border-t border-line px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Switch role (demo)</p>
-          {Object.entries(ROLE_LABELS).map(([role, label]) => (
-            <button
-              key={role}
-              type="button"
-              onClick={() => { loginAs(role); setBranch('ALL'); setOpen(false); navigate('/'); toast.info(`Now signed in as ${label}`); }}
-              className={clsx('block w-full rounded px-2.5 py-1.5 text-start text-sm hover:bg-primary-light', user.role === role && 'bg-primary-light font-medium')}
-            >
-              {label}
-            </button>
-          ))}
-          <button type="button" onClick={() => { logout(); navigate('/login'); }} className="mt-1 flex w-full items-center gap-2 border-t border-line px-2.5 pb-1 pt-2 text-start text-sm text-danger hover:text-danger-hover">
+          <p className="border-t border-line px-2.5 pt-2 text-[11px] text-ink-muted">Signed in as {ROLE_LABELS[user.role]}</p>
+          <button type="button" onClick={async () => { await logout(); navigate('/login'); }} className="mt-1 flex w-full items-center gap-2 border-t border-line px-2.5 pb-1 pt-2 text-start text-sm text-danger hover:text-danger-hover">
             <LogOut size={15} aria-hidden /> Sign out
           </button>
         </div>
@@ -334,6 +323,7 @@ function Breadcrumbs() {
 
 export default function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  useDbSync();
   const { pathname } = useLocation();
   useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
   return (

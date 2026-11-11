@@ -10,7 +10,7 @@ import { useAuth } from '../../store/authStore.js';
 import { useData } from '../../store/dataStore.js';
 import { toast } from '../../store/uiStore.js';
 import { useLookups } from '../../hooks/useApp.js';
-import { SLA_HOURS } from '../../data/operations.js';
+import { SLA_HOURS } from '../../data/config.js';
 import { fmtDate, fmtDateTime } from '../../utils/format.js';
 
 const OPEN_STATES = ['Open', 'In Progress'];

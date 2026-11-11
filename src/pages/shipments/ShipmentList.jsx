@@ -9,7 +9,7 @@ import { useData } from '../../store/dataStore.js';
 import { confirm, toast } from '../../store/uiStore.js';
 import { useLookups, useMoney, useScopedShipments } from '../../hooks/useApp.js';
 import { CITY_NAMES } from '../../data/geo.js';
-import { COURIER_NAMES } from '../../data/shipments.js';
+import { COURIER_NAMES } from '../../data/config.js';
 import { NEXT_STATUS, SHIPMENT_STATUSES, STATUS } from '../../utils/status.js';
 import { SERVICES } from '../../utils/pricing.js';
 import { shipmentColumns } from './columns.jsx';

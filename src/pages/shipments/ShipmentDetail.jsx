@@ -263,7 +263,7 @@ export function ShipmentDetail() {
         title={`Edit ${s.awb}`}
         fields={[
           { name: 'name', label: 'Receiver name', required: true },
-          { name: 'phone', label: 'Receiver phone', required: true, pattern: /^\+?[0-9][0-9\s-]{8,16}$/, patternMessage: 'Enter a valid phone number' },
+          { name: 'phone', label: 'Receiver phone', required: true, phone: true },
           { name: 'address', label: 'Address', required: true, full: true },
           { name: 'notes', label: 'Notes', type: 'textarea', full: true },
         ]}

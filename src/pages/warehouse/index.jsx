@@ -7,7 +7,7 @@ import { FormModal } from '../../components/forms/EntityForm.jsx';
 import { useData } from '../../store/dataStore.js';
 import { confirm, toast } from '../../store/uiStore.js';
 import { useBranchFilter, useLookups, useMoney } from '../../hooks/useApp.js';
-import { stockStatus } from '../../data/operations.js';
+import { stockStatus } from '../../data/config.js';
 import { fmtDate, fmtNumber, sum, uid } from '../../utils/format.js';
 
 const SKU_FIELDS = (lookups) => [

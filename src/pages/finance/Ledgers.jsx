@@ -8,7 +8,7 @@ import { useData } from '../../store/dataStore.js';
 import { confirm, toast } from '../../store/uiStore.js';
 import { useLookups, useMoney } from '../../hooks/useApp.js';
 import { agingBuckets, invoiceBalance, shipmentKpis } from '../../data/helpers.js';
-import { EXPENSE_CATEGORIES } from '../../data/finance.js';
+import { EXPENSE_CATEGORIES } from '../../data/config.js';
 import { fmtDate, groupBy, sum, toPKR, uid } from '../../utils/format.js';
 
 function LedgerView({ rows, party, setParty, options, label, money }) {
@@ -50,8 +50,11 @@ export function Ledgers() {
   const store = useData();
   const { shipments, codTransactions, payouts, invoices, riderDeposits, expenses, otherIncome, addItem, removeItem } = store;
   const [tab, setTab] = useState('pnl');
-  const [merchantId, setMerchantId] = useState('M001');
-  const [riderId, setRiderId] = useState('R001');
+  const [merchantPick, setMerchantId] = useState('');
+  const [riderPick, setRiderId] = useState('');
+  // Default to the first customer / rider until one is picked.
+  const merchantId = merchantPick || lookups.merchantOptions[0]?.value || '';
+  const riderId = riderPick || lookups.riderOptions[0]?.value || '';
   const [branchId, setBranchId] = useState('LHE');
   const [adding, setAdding] = useState(false);
 
