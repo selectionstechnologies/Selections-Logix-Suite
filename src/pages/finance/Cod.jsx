@@ -92,8 +92,7 @@ export function Reconciliation() {
   const reconcile = async (d) => {
     const state = depositState(d);
     if (state !== 'Matched' && !(await confirm({ title: `Reconcile with ${state.toLowerCase()}?`, message: `${lookups.riderName(d.riderId)} deposited ${fmtCurrency(d.deposited, d.currency)} against ${fmtCurrency(d.expected, d.currency)} expected. The ${fmtCurrency(Math.abs(d.deposited - d.expected), d.currency)} difference stays on the rider's ledger.`, confirmLabel: 'Reconcile' }))) return;
-    reconcileDeposit(d.id);
-    toast.success(`${d.id} reconciled`);
+    try { await reconcileDeposit(d.id); toast.success('Deposit reconciled'); } catch (e) { toast.error(e.message); }
   };
 
   return (
@@ -136,10 +135,13 @@ export function Reconciliation() {
           { name: 'riderId', label: 'Rider', type: 'select', options: riderOptions, required: true, full: true },
           { name: 'amount', label: 'Amount deposited', type: 'number', required: true, min: 0, full: true, help: "In the rider's local currency." },
         ]}
-        onSubmit={({ riderId, amount }) => {
-          const dep = recordDeposit(riderId, amount);
-          setRecording(false);
-          if (dep) toast.success(`${dep.id} recorded${dep.deposited !== dep.expected ? ` with a ${depositState(dep).toLowerCase()}` : ''}`);
+        onSubmit={async ({ riderId, amount }) => {
+          try {
+            const dep = await recordDeposit(riderId, amount);
+            setRecording(false);
+            if (dep) toast.success(`Deposit recorded${dep.deposited !== dep.expected ? ` with a ${depositState(dep).toLowerCase()}` : ''}`);
+            else toast.info('This rider has no collected COD to deposit');
+          } catch (e) { toast.error(e.message); }
         }}
       />
     </div>
@@ -175,7 +177,7 @@ export function PayoutManagement() {
   const { money, compact } = useMoney();
   const lookups = useLookups();
   const store = useData();
-  const { payouts, codTransactions, updateItem, markPayoutPaid, createPayout, payableTxns, logPrint } = store;
+  const { payouts, codTransactions, setPayoutStatus, markPayoutPaid, createPayout, payableTxns, logPrint } = store;
   const [open, setOpen] = useState(null);
   const [paying, setPaying] = useState(null);
   const [statement, setStatement] = useState(null);
@@ -187,11 +189,10 @@ export function PayoutManagement() {
   const statementTxns = (p) => codTransactions.filter((t) => p.txnIds.includes(t.id));
   const openP = payouts.find((p) => p.id === open);
 
-  const approve = (p) => { updateItem('payouts', p.id, { status: 'Approved' }, 'Finance', `${p.id} approved`); toast.success(`${p.id} approved`); };
+  const approve = async (p) => { try { await setPayoutStatus(p.id, 'Approved'); toast.success(`${p.batch} approved`); } catch (e) { toast.error(e.message); } };
   const reject = async (p) => {
     if (await confirm({ title: 'Reject payout?', message: `${p.id} will be rejected and its ${p.shipments} parcel(s) become available for a new payout.`, confirmLabel: 'Reject' })) {
-      updateItem('payouts', p.id, { status: 'Rejected' }, 'Finance', `${p.id} rejected`);
-      toast.info(`${p.id} rejected`);
+      try { await setPayoutStatus(p.id, 'Rejected'); toast.info(`${p.batch} rejected`); } catch (e) { toast.error(e.message); }
     }
   };
   const actions = (p) => (
@@ -253,7 +254,9 @@ export function PayoutManagement() {
         title={`Mark ${paying?.id} paid`}
         submitLabel="Mark paid"
         fields={[{ name: 'reference', label: 'Bank reference', required: true, full: true }]}
-        onSubmit={({ reference }) => { markPayoutPaid(paying.id, reference); toast.success(`${paying.id} paid`); setPaying(null); }}
+        onSubmit={async ({ reference }) => {
+          try { await markPayoutPaid(paying.id, reference); toast.success('Payout marked paid'); setPaying(null); } catch (e) { toast.error(e.message); }
+        }}
       />
       <Modal
         open={creating}
@@ -262,7 +265,14 @@ export function PayoutManagement() {
         footer={(
           <>
             <button type="button" className="btn-outline" onClick={() => setCreating(false)}>Cancel</button>
-            <button type="button" className="btn-primary" onClick={() => { const made = dueByMerchant.map((d) => createPayout(d.merchantId)).filter(Boolean); setCreating(false); toast.success(`${made.length} payout(s) created, pending approval`); }}>Create {dueByMerchant.length} payout(s)</button>
+            <button type="button" className="btn-primary" onClick={async () => {
+              let made = 0;
+              for (const d of dueByMerchant) {
+                try { if (await createPayout(d.merchantId)) made += 1; } catch (e) { toast.error(e.message); }
+              }
+              setCreating(false);
+              toast.success(`${made} payout(s) created, pending approval`);
+            }}>Create {dueByMerchant.length} payout(s)</button>
           </>
         )}
       >

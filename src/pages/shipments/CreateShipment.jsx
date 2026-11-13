@@ -9,7 +9,7 @@ import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
-  AlertTriangle, Banknote, CheckCircle2, ChevronLeft, ChevronRight, Copy, CreditCard, Info, Pencil, Plus, Printer, Smartphone, Trash2, UserCheck, Wallet,
+  AlertTriangle, Banknote, Loader2, CheckCircle2, ChevronLeft, ChevronRight, Copy, CreditCard, Info, Pencil, Plus, Printer, Smartphone, Trash2, UserCheck, Wallet,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { Card, PageHeader, Stepper } from '../../components/ui/index.jsx';
@@ -19,10 +19,9 @@ import { useData } from '../../store/dataStore.js';
 import { toast } from '../../store/uiStore.js';
 import { CITY_MAP, CITY_NAMES, ZONES } from '../../data/geo.js';
 import { COURIER_NAMES } from '../../data/config.js';
-import { invoiceBalance } from '../../data/helpers.js';
 import {
   ONLINE_CHANNELS, PACKAGING, PAYMENT_METHODS, PAYMENT_TYPES, PRODUCT_TYPES, SERVICES, UNITS,
-  paymentMethodLabel, shippingPlan, paymentTypeLabel, productTypeLabel, quote, serviceLabel, volumetricWeight,
+  PAYMENT_TERMS, SHIPPING_PLANS, paymentMethodLabel, paymentTerm, paymentTermLabel, shippingPlan, paymentTypeLabel, productTypeLabel, quote, serviceLabel, volumetricWeight,
 } from '../../utils/pricing.js';
 import { cleanPhoneInput, isPhone, phoneInputProps, zPhone, zPhoneOptional } from '../../utils/validation.js';
 import { CNIC_PATTERN, fmtCurrency, formatCnic, phoneKey, sum, toPKR } from '../../utils/format.js';
@@ -34,6 +33,7 @@ const num = (msg = 'Required') => z.coerce.number({ invalid_type_error: msg });
 const schema = z.object({
   merchantId: z.string().min(1, 'Choose a merchant'),
   plan: z.string(),
+  payTerm: z.string(),
   sender: z.object({
     name: z.string().trim().min(2, 'Name is required'),
     phone,
@@ -59,8 +59,8 @@ const schema = z.object({
     value: num().min(0, 'Cannot be negative'),
     hsCode: z.string().trim(),
   })).min(1, 'Add at least one product'),
-  pieces: num().int('Whole number').min(1, 'At least 1').max(50, 'Book more than 50 pieces as Cargo'),
-  weight: num('Weight is required').positive('Weight must be above 0').max(1000, 'Use Cargo booking above 1000 kg'),
+  pieces: num().int('Whole number').min(1, 'At least 1').max(5000, 'At most 5000 pieces'),
+  weight: num('Weight is required').positive('Weight must be above 0').max(40000, 'At most 40,000 kg per booking'),
   length: z.coerce.number().min(0, 'Cannot be negative').optional(),
   width: z.coerce.number().min(0, 'Cannot be negative').optional(),
   height: z.coerce.number().min(0, 'Cannot be negative').optional(),
@@ -76,7 +76,7 @@ const schema = z.object({
 });
 
 const STEPS = [
-  { title: 'Sender', desc: 'Who is sending the parcel.', fields: ['merchantId', 'plan', 'sender.name', 'sender.phone', 'sender.address', 'sender.city'] },
+  { title: 'Sender', desc: 'Who is sending the parcel.', fields: ['merchantId', 'plan', 'payTerm', 'sender.name', 'sender.phone', 'sender.address', 'sender.city'] },
   { title: 'Receiver', desc: 'Who will receive it. Enter the phone first to reuse details of a previous receiver.', fields: ['receiver.phone', 'receiver.altPhone', 'receiver.name', 'receiver.cnic', 'receiver.address', 'receiver.landmark', 'receiver.city', 'receiver.zone'] },
   { title: 'Products', desc: 'What is inside. Add every product so the declared value is correct.', fields: ['productType', 'items'] },
   { title: 'Package', desc: 'Pieces, weight and size decide the chargeable weight.', fields: ['pieces', 'weight', 'length', 'width', 'height', 'packaging'] },
@@ -86,11 +86,13 @@ const STEPS = [
 ];
 const LAST = STEPS.length - 1;
 const DUPLICATE_WINDOW = 30 * 60000;
+const DIMS_ABOVE_KG = 1; // parcels heavier than this need length, width and height
 
 const blankItem = () => ({ name: '', sku: '', qty: 1, unit: 'Pcs', value: 0, hsCode: '' });
 const blank = (merchantId = '') => ({
   merchantId,
   plan: '',
+  payTerm: '',
   sender: { name: '', phone: '', address: '', city: '' },
   receiver: { phone: '', altPhone: '', name: '', cnic: '', address: '', landmark: '', city: '', zone: '' },
   productType: 'parcel',
@@ -131,6 +133,16 @@ function crossRules(v, { crossBorder, due, duePKR, credit, currency, saved, rena
   if (type.mustInsure && !v.insurance) add(4, 'insurance', 'Valuables must be insured');
   else if (v.insurance && !(Number(v.declaredValue) > 0)) add(4, 'insurance', 'Insurance needs a declared value. Add product prices first.');
   if (v.paymentType === 'cod' && !(Number(v.cod) > 0)) add(4, 'cod', 'Enter the amount the rider should collect');
+  // Parcels stay within courier limits; heavier loads need the Full Truck Load or Cargo plan.
+  if (Number(v.weight) > DIMS_ABOVE_KG) {
+    [['length', 'Length'], ['width', 'Width'], ['height', 'Height']].forEach(([k, label]) => {
+      if (!(Number(v[k]) > 0)) add(3, k, `${label} is required for parcels over ${DIMS_ABOVE_KG} kg`);
+    });
+  }
+  if (!shippingPlan(v.plan)?.heavy) {
+    if (Number(v.weight) > 1000) add(3, 'weight', 'Over 1000 kg needs the Full Truck Load or Cargo plan');
+    if (Number(v.pieces) > 50) add(3, 'pieces', 'More than 50 pieces needs the Full Truck Load or Cargo plan');
+  }
 
   if (v.paymentType !== 'topay') {
     const { method, channel, reference, received } = v.payment;
@@ -210,6 +222,43 @@ function ReviewBlock({ title, step, onEdit, children }) {
   );
 }
 
+/** Shows every option; only those on the customer account can be picked, the rest are greyed out. */
+function OptionPicker({ legend, all, allowed, value, onPick }) {
+  return (
+    <fieldset>
+      <legend className="label">{legend} <span className="font-normal text-ink-muted">(set on the customer account)</span></legend>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {all.map((o) => {
+          const enabled = allowed.includes(o.value);
+          const on = enabled && value === o.value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              disabled={!enabled}
+              onClick={() => onPick(o.value)}
+              aria-pressed={on}
+              title={enabled ? undefined : 'Not enabled on this customer account'}
+              className={clsx(
+                'rounded-lg border p-3 text-start text-sm',
+                on && 'border-primary-hover bg-primary-light',
+                enabled && !on && 'border-line hover:bg-surface',
+                !enabled && 'cursor-not-allowed border-dashed border-line bg-surface opacity-60',
+              )}
+            >
+              <span className="flex items-center justify-between gap-2 font-semibold">
+                {o.label}
+                {!enabled && <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-medium text-ink-muted">Not on account</span>}
+              </span>
+              <span className="text-xs text-ink-muted">{o.hint}</span>
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
 function Notice({ tone = 'info', children }) {
   const Icon = tone === 'warn' ? AlertTriangle : Info;
   return (
@@ -234,7 +283,7 @@ const METHOD_ICONS = { cash: Banknote, online: Smartphone, credit: CreditCard, '
 export function CreateShipment() {
   const navigate = useNavigate();
   const user = useAuth((s) => s.user);
-  const { merchants, shipments, invoices, rateCard, merchantOverrides, createShipment } = useData();
+  const { merchants, shipments, rateCard, merchantOverrides, createShipment } = useData();
   const isMerchant = user.role === 'merchant';
   const canAddCustomer = ['super_admin', 'branch_manager'].includes(user.role);
   const [params, setParams] = useSearchParams();
@@ -269,16 +318,22 @@ export function CreateShipment() {
   const type = PRODUCT_TYPES.find((p) => p.value === v.productType) || {};
   const plans = (merchant?.shippingPlans || []).map(shippingPlan).filter(Boolean);
   const activePlan = plans.length ? shippingPlan(v.plan) : null;
+  const terms = (merchant?.paymentTypes || []).map(paymentTerm).filter(Boolean);
+  const activeTerm = terms.length ? paymentTerm(v.payTerm) : null;
 
-  // The customer's shipping plan decides the payment type, how charges are paid and, for Cargo,
-  // the service. Customers saved before plans existed have none and choose these per parcel.
+  // The customer's shipping plan decides the service (Full Truck Load and Cargo go Economy);
+  // the payment type comes from the payment types allowed on the account.
   const applyPlan = (value) => {
     setValue('plan', value || '');
     const pl = shippingPlan(value);
-    if (!pl) return;
-    setValue('paymentType', pl.paymentType, { shouldValidate: true });
-    setValue('payment.method', pl.method || '');
-    if (pl.service) setValue('service', pl.service);
+    if (pl?.service) setValue('service', pl.service);
+  };
+  const applyTerm = (value) => {
+    setValue('payTerm', value || '');
+    const t = paymentTerm(value);
+    if (!t) return;
+    setValue('paymentType', t.paymentType, { shouldValidate: true });
+    setValue('payment.method', t.method || '');
   };
 
   // Picking a merchant fills the sender from their default pickup location and applies their plan.
@@ -291,6 +346,7 @@ export function CreateShipment() {
     setValue('sender.address', m.pickups[0]?.address || m.address, { shouldValidate: true });
     setValue('sender.city', m.city, { shouldValidate: true });
     applyPlan(m.shippingPlans?.[0]);
+    applyTerm(m.paymentTypes?.[0]);
   };
   useEffect(() => { if (isMerchant) applyMerchant(user.merchantId); /* eslint-disable-next-line */ }, [isMerchant]);
   // Back from "Add new customer": select the customer just created once it has loaded.
@@ -305,14 +361,26 @@ export function CreateShipment() {
 
   // Customer records load from the database just after sign-in: fill in once the record arrives,
   // and keep the chosen plan valid if the customer's plans change.
-  const planKey = (merchant?.shippingPlans || []).join();
+  const planKey = `${(merchant?.shippingPlans || []).join()}|${(merchant?.paymentTypes || []).join()}`;
   useEffect(() => {
     if (!merchant) return;
     if (isMerchant && !getValues('sender.name')) applyMerchant(merchant.id);
     else if (merchant.shippingPlans?.length && !merchant.shippingPlans.includes(getValues('plan'))) applyPlan(merchant.shippingPlans[0]);
     else if (!merchant.shippingPlans?.length && getValues('plan')) setValue('plan', '');
+    if (!isMerchant || getValues('sender.name')) {
+      if (merchant.paymentTypes?.length && !merchant.paymentTypes.includes(getValues('payTerm'))) applyTerm(merchant.paymentTypes[0]);
+      else if (!merchant.paymentTypes?.length && getValues('payTerm')) setValue('payTerm', '');
+    }
     // eslint-disable-next-line
   }, [merchant?.id, planKey]);
+
+  // Size is only asked above 1 kg; clear hidden values so they cannot change the price.
+  const lightParcel = !(Number(v.weight) > DIMS_ABOVE_KG);
+  useEffect(() => {
+    if (!lightParcel) return;
+    ['length', 'width', 'height'].forEach((k) => { if (getValues(k) !== '' && getValues(k) != null) setValue(k, ''); });
+    // eslint-disable-next-line
+  }, [lightParcel]);
 
   // Declared value always equals the product lines, so it cannot drift from what was entered.
   const itemsKey = JSON.stringify((v.items || []).map((i) => [i.qty, i.value]));
@@ -361,17 +429,22 @@ export function CreateShipment() {
 
   const due = q?.total || 0;
   const duePKR = toPKR(due, currency);
-  const outstanding = useMemo(() => sum(invoices.filter((i) => i.merchantId === merchantId), invoiceBalance), [invoices, merchantId]);
+  // Credit in use: charges billed to this account that are not cancelled.
+  const outstanding = useMemo(() => sum(shipments.filter((x) => x.merchantId === merchantId && x.payment?.method === 'credit' && x.status !== 'Cancelled'), (x) => toPKR(x.charges.total, x.currency)), [shipments, merchantId]);
   const credit = { limit: merchant?.creditLimit || 0, outstanding, available: Math.max((merchant?.creditLimit || 0) - outstanding, 0) };
   const ctx = { crossBorder, due, duePKR, credit, currency, saved, renameOk };
 
   // Cash is only taken at a counter, and COD deduction only exists on COD bookings.
-  const methods = PAYMENT_METHODS.filter((m) => (activePlan?.method ? m.value === activePlan.method
-    : (m.value !== 'cash' || !isMerchant) && (m.value !== 'cod-deduct' || v.paymentType === 'cod')));
+  // The account's payment type narrows the choice: COD deducts, Credit bills the account, Debit pays now.
+  const methods = PAYMENT_METHODS.filter((m) => {
+    if (activeTerm?.method) return m.value === activeTerm.method;
+    if (activeTerm?.methods && !activeTerm.methods.includes(m.value)) return false;
+    return (m.value !== 'cash' || !isMerchant) && (m.value !== 'cod-deduct' || v.paymentType === 'cod');
+  });
   useEffect(() => {
     if (v.payment.method && !methods.some((m) => m.value === v.payment.method)) setValue('payment.method', '');
     // eslint-disable-next-line
-  }, [v.paymentType, isMerchant, v.plan]);
+  }, [v.paymentType, isMerchant, v.payTerm]);
 
   // Unfinished bookings survive a refresh or an accidental navigation.
   const valuesKey = JSON.stringify(v);
@@ -459,6 +532,15 @@ export function CreateShipment() {
     return issues;
   };
 
+  // Every step opens at the top of the form, not where the previous one was scrolled to.
+  const formTop = useRef(null);
+  const firstStep = useRef(true);
+  useEffect(() => {
+    if (firstStep.current) { firstStep.current = false; return; }
+    const y = (formTop.current?.getBoundingClientRect().top ?? 0) + window.scrollY - 80;
+    window.scrollTo({ top: Math.max(y, 0), behavior: 'smooth' });
+  }, [step]);
+
   const next = async () => {
     const ok = await trigger(STEPS[step].fields, { shouldFocus: true });
     const issues = runRules(step);
@@ -466,7 +548,8 @@ export function CreateShipment() {
     else toast.error('Please fix the highlighted fields');
   };
 
-  const onSubmit = (data) => {
+  const [booking, setBooking] = useState(false);
+  const onSubmit = async (data) => {
     const issues = runRules();
     if (issues.length) {
       setStep(issues[0].step);
@@ -481,7 +564,17 @@ export function CreateShipment() {
       received: method === 'cash' ? Number(received) : 0,
       change: method === 'cash' ? Math.max(Number(received) - due, 0) : 0,
     };
-    const shipment = createShipment({ ...data, payment });
+    let shipment;
+    setBooking(true);
+    try {
+      // The server prices the booking and assigns the AWB; the draft stays until it succeeds.
+      shipment = await createShipment({ ...data, payment });
+    } catch (e) {
+      toast.error(e.message);
+      return;
+    } finally {
+      setBooking(false);
+    }
     // Keep the receiver for next time. The shipment is already booked, so a failure here only warns.
     saveReceiver(data.merchantId, data.receiver)
       .catch((e) => toast.error(`Shipment booked, but the receiver was not saved: ${e.message}`));
@@ -516,7 +609,7 @@ export function CreateShipment() {
             <h1 className="text-lg font-bold">Shipment booked</h1>
             <p className="mt-1 text-sm text-ink-muted">Tracking number</p>
             <p className="text-2xl font-black tracking-wide">{created.awb}</p>
-            <p className="mt-2 text-sm">Delivery charges: <b>{fmtCurrency(created.charges.total, created.currency)}</b> ({paymentTypeLabel(created.paymentType)})</p>
+            <p className="mt-2 text-sm">Delivery charges: <b>{fmtCurrency(created.charges.total, created.currency)}</b> ({created.payTerm ? paymentTermLabel(created.payTerm) : paymentTypeLabel(created.paymentType)})</p>
             {pay?.method === 'cash' && <p className="text-sm">Cash received {fmtCurrency(pay.received, created.currency)}, change <b>{fmtCurrency(pay.change, created.currency)}</b></p>}
             {pay && pay.method !== 'cash' && <p className="text-sm">{pay.status}{pay.reference ? ` (${pay.channel} ${pay.reference})` : ''}</p>}
             {created.toPay > 0 && <p className="text-sm font-semibold text-danger">Rider collects {fmtCurrency(created.toPay, created.currency)} from the receiver</p>}
@@ -551,7 +644,7 @@ export function CreateShipment() {
         </div>
       )}
       {/* Full width so all seven steps fit on one line on desktop. */}
-      <div className="card mb-4 px-4 py-3"><Stepper steps={STEPS.map((s) => s.title)} current={step} onStepClick={setStep} /></div>
+      <div ref={formTop} className="card mb-4 px-4 py-3"><Stepper steps={STEPS.map((s) => s.title)} current={step} onStepClick={setStep} /></div>
       <div className="grid items-start gap-4 lg:grid-cols-3">
         <form onSubmit={onFormSubmit} noValidate className="card min-w-0 lg:col-span-2">
           <div className="border-b border-line px-4 py-3">
@@ -579,21 +672,22 @@ export function CreateShipment() {
                   </div>
                 )}
                 {plans.length > 0 && (
-                  <fieldset>
-                    <legend className="label">Shipping plan</legend>
-                    {plans.length === 1 ? (
-                      <Notice><b>{plans[0].label}</b>: {plans[0].hint}</Notice>
-                    ) : (
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {plans.map((pl) => (
-                          <button key={pl.value} type="button" onClick={() => applyPlan(pl.value)} aria-pressed={v.plan === pl.value} className={clsx('rounded-lg border p-3 text-start text-sm', v.plan === pl.value ? 'border-primary-hover bg-primary-light' : 'border-line hover:bg-surface')}>
-                            <span className="block font-semibold">{pl.label}</span>
-                            <span className="text-xs text-ink-muted">{pl.hint}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </fieldset>
+                  <OptionPicker
+                    legend="Shipping plan"
+                    all={SHIPPING_PLANS}
+                    allowed={plans.map((x) => x.value)}
+                    value={v.plan}
+                    onPick={applyPlan}
+                  />
+                )}
+                {terms.length > 0 && (
+                  <OptionPicker
+                    legend="Payment type"
+                    all={PAYMENT_TERMS}
+                    allowed={terms.map((x) => x.value)}
+                    value={v.payTerm}
+                    onPick={applyTerm}
+                  />
                 )}
                 {merchant?.pickups?.length > 0 && (
                   <div>
@@ -802,11 +896,15 @@ export function CreateShipment() {
                     </select>
                   </Field>
                 </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <Field label="Length (cm)" name="length" type="number" register={register} errors={errors} placeholder="Optional" />
-                  <Field label="Width (cm)" name="width" type="number" register={register} errors={errors} placeholder="Optional" />
-                  <Field label="Height (cm)" name="height" type="number" register={register} errors={errors} placeholder="Optional" />
-                </div>
+                {Number(v.weight) > DIMS_ABOVE_KG ? (
+                  <div className="grid grid-cols-3 gap-3">
+                    <Field label="Length (cm)" name="length" type="number" register={register} errors={errors} required placeholder="e.g. 30" min="1" />
+                    <Field label="Width (cm)" name="width" type="number" register={register} errors={errors} required placeholder="e.g. 20" min="1" />
+                    <Field label="Height (cm)" name="height" type="number" register={register} errors={errors} required placeholder="e.g. 15" min="1" />
+                  </div>
+                ) : (
+                  <p className="text-xs text-ink-muted">Up to {DIMS_ABOVE_KG} kg the size is not needed. Above {DIMS_ABOVE_KG} kg, length, width and height are required.</p>
+                )}
                 <div className="grid grid-cols-3 gap-2 rounded-lg bg-surface p-3 text-center text-sm">
                   <div><p className="text-xs text-ink-muted">Actual</p><p className="font-semibold">{Number(v.weight) || 0} kg</p></div>
                   <div><p className="text-xs text-ink-muted">Volumetric (LxWxH / 5000)</p><p className="font-semibold">{Math.round(vol * 100) / 100} kg</p></div>
@@ -841,11 +939,8 @@ export function CreateShipment() {
                   <FieldError message={errors.service?.message} />
                 </fieldset>
 
-                {activePlan ? (
-                  <Notice>
-                    <b>{activePlan.label} plan:</b> {paymentTypeLabel(activePlan.paymentType)}
-                    {activePlan.method ? `, charges ${activePlan.method === 'credit' ? 'billed to the account' : 'deducted from the COD'}` : ''}. Set on the customer account.
-                  </Notice>
+                {activeTerm ? (
+                  <Notice><b>Payment: {activeTerm.label}</b>. {activeTerm.hint} Set on the customer account.</Notice>
                 ) : (
                   <fieldset>
                     <legend className="label">Payment type<span className="text-danger"> *</span></legend>
@@ -984,7 +1079,7 @@ export function CreateShipment() {
                     <p>{PACKAGING.find((p) => p.value === v.packaging)?.label}</p>
                   </ReviewBlock>
                   <ReviewBlock title="Service" step={4} onEdit={setStep}>
-                    <p>{serviceLabel(v.service)}, {paymentTypeLabel(v.paymentType)}</p>
+                    <p>{serviceLabel(v.service)}, {activeTerm ? activeTerm.label : paymentTypeLabel(v.paymentType)}</p>
                     {v.paymentType === 'cod' && <p className="font-bold text-danger">COD {fmtCurrency(v.cod, currency)}</p>}
                     {v.insurance && <p>Insured</p>}
                     {v.notes && <p className="text-ink-muted">{v.notes}</p>}
@@ -1003,7 +1098,7 @@ export function CreateShipment() {
             <button type="button" className="btn-outline" disabled={step === 0} onClick={() => setStep((s) => s - 1)}><ChevronLeft size={15} aria-hidden /> Back</button>
             {step < LAST
               ? <button key="next" type="submit" className="btn-primary">Next: {STEPS[step + 1].title} <ChevronRight size={15} aria-hidden /></button>
-              : <button key="submit" type="submit" className="btn-primary"><CheckCircle2 size={15} aria-hidden /> Confirm booking</button>}
+              : <button key="submit" type="submit" className="btn-primary" disabled={booking}>{booking ? <Loader2 size={15} className="animate-spin" aria-hidden /> : <CheckCircle2 size={15} aria-hidden />} {booking ? 'Booking...' : 'Confirm booking'}</button>}
           </div>
           <div className="px-4 pb-3 text-end"><button type="button" className="text-xs text-ink-muted hover:text-ink" onClick={() => { writeDraft(draftKey, null); navigate('/shipments'); }}>Discard and exit</button></div>
         </form>
@@ -1013,7 +1108,7 @@ export function CreateShipment() {
             <div className="flex justify-between gap-2"><dt className="text-ink-muted">Receiver</dt><dd className="truncate text-end font-medium">{v.receiver.name || '-'}{destCity ? `, ${destCity}` : ''}</dd></div>
             <div className="flex justify-between gap-2"><dt className="text-ink-muted">Products</dt><dd className="text-end">{fields.length} ({totalQty} units)</dd></div>
             <div className="flex justify-between gap-2"><dt className="text-ink-muted">Package</dt><dd className="text-end">{v.pieces || 0} pc, {v.weight || 0} kg</dd></div>
-            <div className="flex justify-between gap-2"><dt className="text-ink-muted">Service</dt><dd className="text-end">{serviceLabel(v.service)}, {paymentTypeLabel(v.paymentType)}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-ink-muted">Service</dt><dd className="text-end">{serviceLabel(v.service)}, {activeTerm ? activeTerm.label : paymentTypeLabel(v.paymentType)}</dd></div>
           </dl>
           {!q && <p className="border-t border-line py-6 text-center text-sm text-ink-muted">Choose the sender and receiver cities to see the price.</p>}
           {q && (

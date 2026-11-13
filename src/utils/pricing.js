@@ -51,15 +51,39 @@ export const PAYMENT_METHODS = [
   { value: 'cod-deduct', label: 'Deduct from COD', hint: 'Charges are taken out of the COD remittance' },
 ];
 export const paymentMethodLabel = (v) => PAYMENT_METHODS.find((p) => p.value === v)?.label || v;
-// Shipping plans are set on the customer account, so the booking form fills these in by itself.
-// paymentType / method / service: what the plan fixes. Anything not listed is still chosen per parcel.
-export const SHIPPING_PLANS = [
-  { value: 'cod', label: 'COD', hint: 'Rider collects the goods amount. Delivery charges are deducted from the COD.', paymentType: 'cod', method: 'cod-deduct' },
-  { value: 'shipment', label: 'Shipment', hint: 'Standard prepaid parcels. Charges are paid at booking (cash or online).', paymentType: 'prepaid' },
-  { value: 'corporate', label: 'Corporate', hint: 'Charges are billed to the account on the monthly invoice (uses the credit limit).', paymentType: 'prepaid', method: 'credit' },
-  { value: 'cargo', label: 'Cargo', hint: 'Heavy or bulk goods sent Economy (ground). Payment is chosen per booking.', paymentType: 'prepaid', service: 'economy' },
+// Payment types allowed on a customer account. Create Shipment offers only these and fills in
+// the parcel's payment type and how the charges are paid.
+export const PAYMENT_TERMS = [
+  { value: 'cod', label: 'COD', hint: 'Rider collects the goods amount from the receiver. Delivery charges are deducted from the COD.', paymentType: 'cod', method: 'cod-deduct' },
+  { value: 'topay', label: 'To-Pay', hint: 'Receiver pays the delivery charges to the rider at the door.', paymentType: 'topay' },
+  { value: 'credit', label: 'Credit', hint: 'Charges are billed to the account on the monthly invoice (uses the credit limit).', paymentType: 'prepaid', method: 'credit' },
+  { value: 'debit', label: 'Debit', hint: 'Sender pays the delivery charges at booking (cash or online).', paymentType: 'prepaid', methods: ['cash', 'online'] },
 ];
-export const shippingPlan = (v) => SHIPPING_PLANS.find((p) => p.value === v);
+export const paymentTerm = (v) => PAYMENT_TERMS.find((t) => t.value === v);
+export const paymentTermLabel = (v) => paymentTerm(v)?.label || v;
+/** Customers saved before payment types existed: take them from the old plan rules. */
+export const paymentTermsFor = (c) => {
+  if (c?.payment_types?.length) return c.payment_types;
+  const plans = (c?.shipping_plans || []).map((x) => (x === 'shipment' ? 'ftl' : x));
+  const out = [];
+  if (plans.includes('cod')) out.push('cod');
+  if (plans.includes('corporate')) out.push('credit');
+  if (plans.some((x) => ['ftl', 'cargo'].includes(x)) || !out.length) out.push('debit');
+  return out;
+};
+
+// Shipping plans are set on the customer account. They decide the service (Full Truck Load and
+// Cargo go by road, Economy) and the weight limits; payment comes from the payment types above.
+export const SHIPPING_PLANS = [
+  { value: 'cod', label: 'COD', hint: 'Cash-on-delivery parcels for online sellers.' },
+  { value: 'ftl', label: 'Full Truck Load', hint: 'A whole truck booked for one load, sent by road (Economy).', service: 'economy', heavy: true },
+  { value: 'corporate', label: 'Corporate', hint: 'Business account with contracted rates.' },
+  { value: 'cargo', label: 'Cargo', hint: 'Heavy or bulk goods sent Economy (ground).', service: 'economy', heavy: true },
+];
+// Customers saved before the rename carry 'shipment'; it now means Full Truck Load.
+export const normalizePlan = (v) => (v === 'shipment' ? 'ftl' : v);
+export const normalizePlans = (list) => [...new Set((list || []).map(normalizePlan))];
+export const shippingPlan = (v) => SHIPPING_PLANS.find((p) => p.value === normalizePlan(v));
 export const shippingPlanLabel = (v) => shippingPlan(v)?.label || v;
 
 export const ONLINE_CHANNELS = ['JazzCash', 'Easypaisa', 'Bank Transfer', 'Card / POS'];

@@ -146,7 +146,7 @@ export function SystemSettings() {
   const [tab, setTab] = useState('company');
   const { register, handleSubmit, formState: { errors, isDirty }, reset } = useForm({ defaultValues: settings });
   const save = (v) => {
-    const next = { ...settings, ...v, taxPct: Number(v.taxPct), invoiceNext: Number(v.invoiceNext) };
+    const next = { ...settings, ...v };
     setValue('settings', next, 'Settings', 'System settings updated');
     reset(next);
     toast.success('Settings saved');
@@ -172,8 +172,8 @@ export function SystemSettings() {
   return (
     <div>
       <PageHeader title="Settings" />
-      <Tabs value={tab} onChange={setTab} tabs={[{ value: 'company', label: 'Company' }, { value: 'billing', label: 'Invoicing & tax' }, { value: 'labels', label: 'Labels & statuses' }, { value: 'notify', label: 'Notifications' }, { value: 'demo', label: 'Local data' }]} />
-      {(tab === 'company' || tab === 'billing' || tab === 'labels') && (
+      <Tabs value={tab} onChange={setTab} tabs={[{ value: 'company', label: 'Company' }, { value: 'labels', label: 'Labels & statuses' }, { value: 'notify', label: 'Notifications' }, { value: 'demo', label: 'Local data' }]} />
+      {(tab === 'company' || tab === 'labels') && (
         <form onSubmit={handleSubmit(save)} noValidate>
           {tab === 'company' && (
             <Card title="Company profile">
@@ -193,17 +193,6 @@ export function SystemSettings() {
                   </div>
                 </div>
               </div>
-            </Card>
-          )}
-          {tab === 'billing' && (
-            <Card title="Invoice numbering and tax">
-              <div className="grid gap-3 sm:grid-cols-2">
-                {f('invoicePrefix', 'Invoice prefix', { required: true })}
-                {f('invoiceNext', 'Next invoice number', { required: true, min: 1 }, 'number')}
-                {f('taxName', 'Tax name', { required: true })}
-                {f('taxPct', 'Tax %', { required: true, min: 0 }, 'number')}
-              </div>
-              <p className="mt-3 text-xs text-ink-muted">Next invoice: {settings.invoicePrefix}{settings.invoiceNext}. The shipment tax rate is set on Rate Cards.</p>
             </Card>
           )}
           {tab === 'labels' && (

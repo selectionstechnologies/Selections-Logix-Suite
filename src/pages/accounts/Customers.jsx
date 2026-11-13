@@ -11,8 +11,8 @@ import { useAuth } from '../../store/authStore.js';
 import { confirm, toast } from '../../store/uiStore.js';
 import { fmtDate, fmtDateTime } from '../../utils/format.js';
 import { syncFromDb } from '../../hooks/useDbSync.js';
-import { shippingPlanLabel, SHIPPING_PLANS } from '../../utils/pricing.js';
-import { CUSTOMER_TYPES, createUser, deleteCustomer, docDownloadUrl, getCustomer, listCustomers, setCustomerStatus } from '../../lib/api.js';
+import { PAYMENT_TERMS, normalizePlans, paymentTermLabel, paymentTermsFor, shippingPlanLabel, SHIPPING_PLANS } from '../../utils/pricing.js';
+import { createUser, deleteCustomer, docDownloadUrl, getCustomer, listCustomers, setCustomerStatus } from '../../lib/api.js';
 
 const count = (x) => (Array.isArray(x) ? x.length : Number(x) || 0);
 const fmtSize = (b) => (b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
@@ -31,8 +31,8 @@ export function CustomerAccounts() {
   const columns = [
     { key: 'account_no', header: 'Account #', render: (r) => <span className="font-mono text-xs">{r.account_no}</span> },
     { key: 'business_name', header: 'Business', render: (r) => <span className="font-medium">{r.business_name}</span> },
-    { key: 'customer_type', header: 'Type' },
     { key: 'shipping_plans', header: 'Plan', value: (r) => (r.shipping_plans || []).map(shippingPlanLabel).join(', ') || '-' },
+    { key: 'payment_types', header: 'Payment', value: (r) => paymentTermsFor(r).map(paymentTermLabel).join(', ') },
     { key: 'owner_name', header: 'Owner' },
     { key: 'phone', header: 'Phone' },
     { key: 'city', header: 'City' },
@@ -64,8 +64,8 @@ export function CustomerAccounts() {
         dateKey="created_at"
         searchPlaceholder="Search name, account #, phone..."
         filters={[
-          { key: 'customer_type', label: 'Type', options: CUSTOMER_TYPES },
-          { key: 'shipping_plans', label: 'Plan', options: SHIPPING_PLANS.map((x) => ({ value: x.value, label: x.label })), match: (r, v) => (r.shipping_plans || []).includes(v) },
+          { key: 'shipping_plans', label: 'Plan', options: SHIPPING_PLANS.map((x) => ({ value: x.value, label: x.label })), match: (r, v) => normalizePlans(r.shipping_plans).includes(v) },
+          { key: 'payment_types', label: 'Payment', options: PAYMENT_TERMS.map((x) => ({ value: x.value, label: x.label })), match: (r, v) => paymentTermsFor(r).includes(v) },
           { key: 'status', label: 'Status', options: ['Active', 'Inactive', 'Suspended'] },
           { key: 'kyc_status', label: 'KYC', options: ['Pending', 'Verified', 'Rejected'] },
         ]}
@@ -130,7 +130,7 @@ export function CustomerAccountView({ customerId }) {
     <div>
       <PageHeader
         title={c.business_name}
-        subtitle={`${c.account_no} · ${c.customer_type} · since ${fmtDate(c.created_at)}`}
+        subtitle={`${c.account_no} · since ${fmtDate(c.created_at)}`}
         actions={manage && (
           <>
             {c.kyc_status !== 'Verified' && <button type="button" className="btn-outline" onClick={() => patch({ kyc_status: 'Verified' }, 'KYC verified')}><BadgeCheck size={15} aria-hidden /> Verify KYC</button>}
@@ -149,8 +149,8 @@ export function CustomerAccountView({ customerId }) {
           <Card title="Customer account">
             <dl className="grid gap-4 sm:grid-cols-3">
               <KV label="Business name">{c.business_name}</KV>
-              <KV label="Customer type">{c.customer_type}</KV>
               <KV label="Shipping plan">{(c.shipping_plans || []).map(shippingPlanLabel).join(', ')}</KV>
+              <KV label="Payment type">{paymentTermsFor(c).map(paymentTermLabel).join(', ')}</KV>
               <KV label="Owner name">{c.owner_name}</KV>
               <KV label="CNIC">{c.cnic}</KV>
               <KV label="NTN">{c.ntn}</KV>
@@ -208,12 +208,18 @@ export function CustomerAccountView({ customerId }) {
               <KV label="Portal login">{c.login ? c.login.email : 'None'}</KV>
             </dl>
           </Card>
-          <Card title="Bank detail">
-            <dl className="grid gap-4">
-              <KV label="Bank name">{c.bank_name}</KV>
-              <KV label="Account title">{c.account_title}</KV>
-              <KV label="IBAN #"><span className="font-mono">{c.iban}</span></KV>
-            </dl>
+          <Card title={`Bank accounts (${c.bank_accounts?.length || 0})`}>
+            {!c.bank_accounts?.length ? <p className="text-sm text-ink-muted">No bank account added.</p> : (
+              <ul className="space-y-3">
+                {c.bank_accounts.map((b, i) => (
+                  <li key={b.id || i} className="rounded-xl border border-line p-3 text-sm">
+                    <p className="flex items-center gap-2 font-semibold">{b.bank_name}{i === 0 && <span className="rounded-full bg-primary-light px-2 py-0.5 text-[10px] text-primary-dark">Primary</span>}</p>
+                    <p>{b.account_title}</p>
+                    <p className="font-mono text-xs">{b.iban}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Card>
           {c.notes && <Card title="Notes"><p className="whitespace-pre-wrap text-sm">{c.notes}</p></Card>}
         </div>

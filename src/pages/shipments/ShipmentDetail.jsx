@@ -28,11 +28,13 @@ function StatusModal({ shipment: s, open, onClose }) {
   const [status, setStatus] = useState('');
   const [note, setNote] = useState('');
   const options = NEXT_STATUS[s.status] || [];
-  const save = () => {
-    const { ok } = changeStatus(s.id, status, { note: note || status });
-    toast[ok ? 'success' : 'error'](ok ? `Status updated to ${status}` : 'That status change is not allowed');
-    setStatus(''); setNote('');
-    onClose();
+  const save = async () => {
+    try {
+      const { ok } = await changeStatus(s.id, status, { note: note || status });
+      toast[ok ? 'success' : 'error'](ok ? `Status updated to ${status}` : 'That status change is not allowed for your role');
+      setStatus(''); setNote('');
+      onClose();
+    } catch (e) { toast.error(e.message); }
   };
   return (
     <Modal open={open} onClose={onClose} title="Update status" size="sm" footer={<><button type="button" className="btn-outline" onClick={onClose}>Cancel</button><button type="button" className="btn-primary" disabled={!status} onClick={save}>Update</button></>}>
@@ -53,7 +55,7 @@ export function ShipmentDetail() {
   const user = useAuth((st) => st.user);
   const scoped = useScopedShipments();
   const allShipments = useData((st) => st.shipments);
-  const { changeStatus, updateItem, addShipmentNote, codTransactions, returnsList } = useData();
+  const { changeStatus, updateShipment, addShipmentNote, codTransactions } = useData();
   const lookups = useLookups();
   // Internal users may follow a link to any shipment, even outside the current branch filter.
   const s = user.role === 'merchant' ? scoped.find((x) => x.id === id) : allShipments.find((x) => x.id === id);
@@ -74,25 +76,26 @@ export function ShipmentDetail() {
   const off = stepIdx < 0;
   const editable = s.status === STATUS.BOOKED || (staff && options.length > 0);
   const merchant = lookups.merchant(s.merchantId);
-  const rtoRecord = returnsList.find((r) => r.shipmentId === s.id);
 
   const cancel = async () => {
     if (await confirm({ title: 'Cancel this shipment?', message: `${s.awb} will be cancelled and its COD removed. This cannot be undone.`, confirmLabel: 'Cancel shipment' })) {
-      changeStatus(s.id, STATUS.CANCELLED, { note: 'Cancelled by user' });
-      toast.success(`${s.awb} cancelled`);
+      try {
+        const { ok } = await changeStatus(s.id, STATUS.CANCELLED, { note: 'Cancelled by user' });
+        toast[ok ? 'success' : 'error'](ok ? `${s.awb} cancelled` : 'This shipment can no longer be cancelled');
+      } catch (e) { toast.error(e.message); }
     }
   };
   const startReturn = async () => {
     if (await confirm({ title: 'Return to origin?', message: `${s.awb} will stop delivery attempts and go back to ${s.originCity}. Return charges may apply.`, confirmLabel: 'Start return' })) {
-      changeStatus(s.id, STATUS.RTO, { note: 'Return initiated' });
-      toast.success(`${s.awb} is returning to origin`);
+      try {
+        const { ok } = await changeStatus(s.id, STATUS.RTO, { note: 'Return initiated' });
+        toast[ok ? 'success' : 'error'](ok ? `${s.awb} is returning to origin` : 'A return cannot be started at this stage');
+      } catch (e) { toast.error(e.message); }
     }
   };
-  const addNote = () => {
+  const addNote = async () => {
     if (!note.trim()) return;
-    addShipmentNote(s.id, note.trim());
-    setNote('');
-    toast.success('Note added');
+    try { await addShipmentNote(s.id, note.trim()); setNote(''); toast.success('Note added'); } catch (e) { toast.error(e.message); }
   };
 
   const docEntry = doc && DOCS.find((d) => d[0] === doc);
@@ -227,7 +230,6 @@ export function ShipmentDetail() {
               <KV label="Origin branch">{lookups.branchName(s.originBranchId)}</KV>
               <KV label="Destination branch">{lookups.branchName(s.destBranchId)}</KV>
               {s.manifestId && <KV label="Manifest">{s.manifestId}</KV>}
-              {rtoRecord && <KV label="Return record">{rtoRecord.id}</KV>}
             </dl>
           </Card>
 
@@ -250,11 +252,8 @@ export function ShipmentDetail() {
         submitLabel="Reschedule"
         fields={[{ name: 'date', label: 'New date', type: 'date', required: true, full: true }]}
         defaultValues={{ date: '' }}
-        onSubmit={({ date }) => {
-          updateItem('shipments', s.id, { eta: new Date(date).toISOString() }, 'Shipment', `${s.awb} rescheduled to ${date}`);
-          addShipmentNote(s.id, `Rescheduled to ${date}`);
-          toast.success(`Rescheduled to ${fmtDate(date)}`);
-          setModal(null);
+        onSubmit={async ({ date }) => {
+          try { await updateShipment(s.id, { eta: date }); toast.success(`Rescheduled to ${fmtDate(date)}`); setModal(null); } catch (e) { toast.error(e.message); }
         }}
       />
       <FormModal
@@ -265,14 +264,10 @@ export function ShipmentDetail() {
           { name: 'name', label: 'Receiver name', required: true },
           { name: 'phone', label: 'Receiver phone', required: true, phone: true },
           { name: 'address', label: 'Address', required: true, full: true },
-          { name: 'notes', label: 'Notes', type: 'textarea', full: true },
         ]}
-        defaultValues={{ ...s.receiver, notes: s.notes }}
-        onSubmit={({ notes, name, phone, address }) => {
-          updateItem('shipments', s.id, (x) => ({ receiver: { ...x.receiver, name, phone, address }, notes }), 'Shipment', `${s.awb} details edited`);
-          addShipmentNote(s.id, 'Receiver details edited');
-          toast.success('Shipment updated');
-          setModal(null);
+        defaultValues={{ ...s.receiver }}
+        onSubmit={async ({ name, phone, address }) => {
+          try { await updateShipment(s.id, { receiver: { name, phone, address } }); toast.success('Shipment updated'); setModal(null); } catch (e) { toast.error(e.message); }
         }}
       />
       {docEntry && (

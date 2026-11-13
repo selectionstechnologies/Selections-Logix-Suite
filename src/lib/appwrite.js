@@ -21,9 +21,14 @@ export const T = {
   customers: 'customers',
   pickups: 'customer_pickup_addresses',
   contacts: 'customer_contacts',
+  bankAccounts: 'customer_bank_accounts',
   documents: 'customer_documents',
   receivers: 'receivers',
   pricing: 'pricing',
+  shipments: 'shipments',
+  codTxns: 'cod_transactions',
+  deposits: 'rider_deposits',
+  payouts: 'payouts',
 };
 
 export const client = appwriteConfigured ? new Client().setEndpoint(endpoint).setProject(projectId) : null;

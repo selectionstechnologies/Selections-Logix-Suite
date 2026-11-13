@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import clsx from 'clsx';
-import { CalendarClock, GripVertical, MessageCircle, Pencil, Phone, Plus, Printer, RotateCcw, Trash2, Truck } from 'lucide-react';
+import { GripVertical, Pencil, Phone, Plus, Printer, Trash2, Truck } from 'lucide-react';
 import DataTable from '../../components/tables/DataTable.jsx';
 import { Card, KV, Modal, PageHeader, StatCard, StatusBadge, Tabs } from '../../components/ui/index.jsx';
 import { FormModal } from '../../components/forms/EntityForm.jsx';
@@ -9,11 +9,11 @@ import { RecordNotFound } from '../../components/layout/Fallbacks.jsx';
 import { PrintPreview, RunSheetDoc } from '../../components/print/index.jsx';
 import { useData } from '../../store/dataStore.js';
 import { confirm, toast } from '../../store/uiStore.js';
-import { useActiveBranch, useBranchFilter, useLookups, useMoney, useScopedShipments } from '../../hooks/useApp.js';
+import { useActiveBranch, useBranchFilter, useLookups, useMoney } from '../../hooks/useApp.js';
 import { riderStats } from '../../data/helpers.js';
 import { CITY_MAP } from '../../data/geo.js';
-import { NDR_GROUP, STATUS } from '../../utils/status.js';
-import { fmtDate, fmtDateTime, fmtPct, sum, uid } from '../../utils/format.js';
+import { STATUS } from '../../utils/status.js';
+import { fmtDateTime, fmtPct, sum, uid } from '../../utils/format.js';
 import { shipmentColumns } from '../shipments/columns.jsx';
 
 const riderFields = (branchOptions) => [
@@ -163,11 +163,13 @@ export function DispatchBoard() {
   const pool = riders.filter((r) => r.branchId === currentBranch);
   const runOf = (riderId) => shipments.filter((s) => (s.riderId === riderId && [STATUS.DEST, STATUS.OFD, STATUS.REATTEMPT].includes(s.status)) || (s.pickupRiderId === riderId && s.status === STATUS.BOOKED));
 
-  const assign = (ids, rider) => {
+  const assign = async (ids, rider) => {
     if (rider.status === 'On Leave') { toast.error(`${rider.name} is on leave`); return; }
-    assignRider(ids, rider.id);
-    setSelected(new Set());
-    toast.success(`${ids.length} parcel(s) assigned to ${rider.name}`);
+    try {
+      await assignRider(ids, rider.id);
+      setSelected(new Set());
+      toast.success(`${ids.length} parcel(s) assigned to ${rider.name}`);
+    } catch (e) { toast.error(e.message); }
   };
   const toggle = (id) => setSelected((prev) => {
     const next = new Set(prev);
@@ -178,11 +180,13 @@ export function DispatchBoard() {
     const id = e.dataTransfer.getData('text/plain');
     return selected.has(id) ? [...selected] : [id];
   };
-  const startRun = (rider) => {
+  const startRun = async (rider) => {
     const ready = shipments.filter((s) => s.riderId === rider.id && s.status === STATUS.DEST);
     if (!ready.length) { toast.info('No hub parcels waiting to go out for this rider'); return; }
-    const { ok } = changeStatus(ready.map((s) => s.id), STATUS.OFD, { note: `Out with ${rider.name}` });
-    toast.success(`${ok} parcel(s) now Out for Delivery`);
+    try {
+      const { ok } = await changeStatus(ready.map((s) => s.id), STATUS.OFD, { note: `Out with ${rider.name}` });
+      toast.success(`${ok} parcel(s) now Out for Delivery`);
+    } catch (e) { toast.error(e.message); }
   };
 
   return (
@@ -277,65 +281,3 @@ export function DispatchBoard() {
 
 const waLink = (phone, awb) => `https://wa.me/${phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello, we tried delivering your parcel ${awb}. Please confirm a good time for another attempt.`)}`;
 
-export function NdrManagement() {
-  const { money } = useMoney();
-  const lookups = useLookups();
-  const scoped = useScopedShipments();
-  const changeStatus = useData((s) => s.changeStatus);
-  const updateItem = useData((s) => s.updateItem);
-  const rows = scoped.filter((s) => NDR_GROUP.includes(s.status));
-  const [schedule, setSchedule] = useState(null);
-  const lastAt = (s) => s.events[s.events.length - 1].at;
-
-  const rto = async (s) => {
-    if (await confirm({ title: 'Return to origin?', message: `${s.awb} will stop delivery attempts and go back to ${s.originCity}.`, confirmLabel: 'Return parcel' })) {
-      changeStatus(s.id, STATUS.RTO, { note: `NDR closed: ${s.ndr?.reason}` });
-      toast.success(`${s.awb} returning to origin`);
-    }
-  };
-  const columns = [
-    { key: 'awb', header: 'AWB', render: (s) => <Link className="link" to={`/shipments/${s.id}`}>{s.awb}</Link>, value: (s) => s.awb },
-    { key: 'receiver', header: 'Receiver', value: (s) => s.receiver.name },
-    { key: 'city', header: 'City', value: (s) => s.destCity },
-    { key: 'reason', header: 'Reason', value: (s) => s.ndr?.reason || '-', render: (s) => <span className="font-medium text-danger-dark">{s.ndr?.reason}</span> },
-    { key: 'attempts', header: 'Attempts', align: 'right', value: (s) => s.ndr?.attempts || 0 },
-    { key: 'next', header: 'Next attempt', value: (s) => s.ndr?.nextAttempt || '', render: (s) => (s.ndr?.nextAttempt ? fmtDate(s.ndr.nextAttempt) : '-') },
-    { key: 'rider', header: 'Rider', value: (s) => lookups.riderName(s.riderId) },
-    { key: 'cod', header: 'COD', align: 'right', value: (s) => s.cod, render: (s) => (s.cod > 0 ? money(s.cod, s.currency) : '-') },
-    { key: 'last', header: 'Last update', value: lastAt, render: (s) => fmtDateTime(lastAt(s)), exportValue: (s) => fmtDateTime(lastAt(s)) },
-    { key: 'status', header: 'Status', render: (s) => <StatusBadge status={s.status} />, value: (s) => s.status },
-    { key: 'act', header: 'Actions', sortable: false, export: false, render: (s) => (
-      <span className="flex gap-1">
-        <a className="btn-outline btn-sm" href={`tel:${s.receiver.phone.replace(/\s/g, '')}`} aria-label={`Call ${s.receiver.name}`}><Phone size={13} /></a>
-        <a className="btn-outline btn-sm" href={waLink(s.receiver.phone, s.awb)} target="_blank" rel="noreferrer" aria-label={`WhatsApp ${s.receiver.name}`}><MessageCircle size={13} /></a>
-        <button type="button" className="btn-primary btn-sm" onClick={() => setSchedule(s)}><CalendarClock size={13} aria-hidden /> {s.status === STATUS.REATTEMPT ? 'Move' : 'Re-attempt'}</button>
-        <button type="button" className="btn-danger btn-sm" onClick={() => rto(s)}><RotateCcw size={13} aria-hidden /> RTO</button>
-      </span>
-    ) },
-  ];
-  const reasons = [...new Set(rows.map((s) => s.ndr?.reason).filter(Boolean))];
-  return (
-    <div>
-      <PageHeader title="NDR Management" subtitle="Failed deliveries that need a re-attempt or a return decision." />
-      <DataTable columns={columns} data={rows} exportName="ndr" emptyTitle="No failed deliveries" emptyMessage="Failed attempts appear here for follow-up." filters={[{ key: 'status', label: 'Status', options: NDR_GROUP }, { key: 'reason', label: 'Reason', options: reasons, match: (s, v) => s.ndr?.reason === v }]} />
-      <FormModal
-        open={!!schedule}
-        onClose={() => setSchedule(null)}
-        title={`Schedule re-attempt: ${schedule?.awb}`}
-        submitLabel="Schedule"
-        fields={[
-          { name: 'date', label: 'Attempt date', type: 'date', required: true },
-          { name: 'note', label: 'Note from customer', full: true },
-        ]}
-        onSubmit={({ date, note }) => {
-          const nextAttempt = new Date(date).toISOString();
-          if (date < new Date().toISOString().slice(0, 10)) { toast.error('Pick today or a future date'); return; }
-          if (schedule.status === STATUS.FAILED) changeStatus(schedule.id, STATUS.REATTEMPT, { note: note || `Re-attempt on ${date}`, nextAttempt });
-          else updateItem('shipments', schedule.id, (x) => ({ ndr: { ...x.ndr, nextAttempt } }), 'Shipment', `${schedule.awb} re-attempt moved to ${date}`);
-          toast.success(`Re-attempt booked for ${fmtDate(date)}`);
-          setSchedule(null);
-        }}
-      />
-    </div>
-  );
-}

@@ -21,12 +21,14 @@ export function BulkStatusModal({ open, onClose, rows, onDone }) {
   const [note, setNote] = useState('');
   const options = useMemo(() => [...new Set(rows.flatMap((s) => NEXT_STATUS[s.status] || []))], [rows]);
   const eligible = rows.filter((s) => NEXT_STATUS[s.status]?.includes(status)).length;
-  const apply = () => {
-    const { ok, skipped } = changeStatus(rows.map((s) => s.id), status, { note: note || status });
-    toast[ok ? 'success' : 'error'](`${ok} updated to ${status}${skipped ? `, ${skipped} skipped (not a valid next step)` : ''}`);
-    setStatus(''); setNote('');
-    onDone?.();
-    onClose();
+  const apply = async () => {
+    try {
+      const { ok, skipped } = await changeStatus(rows.map((s) => s.id), status, { note: note || status });
+      toast[ok ? 'success' : 'error'](`${ok} updated to ${status}${skipped ? `, ${skipped} skipped (not a valid next step or not allowed)` : ''}`);
+      setStatus(''); setNote('');
+      onDone?.();
+      onClose();
+    } catch (e) { toast.error(e.message); }
   };
   return (
     <Modal
@@ -60,12 +62,14 @@ export function AssignRiderModal({ open, onClose, rows, onDone }) {
   // Offer riders from the branch handling the parcels, falling back to everyone on mixed selections.
   const branches = [...new Set(rows.map((s) => (s.status === STATUS.BOOKED ? s.originBranchId : s.destBranchId)))];
   const pool = riders.filter((r) => r.status !== 'On Leave' && (branches.length !== 1 || r.branchId === branches[0]));
-  const apply = () => {
-    assignRider(rows.map((s) => s.id), riderId);
-    toast.success(`${rows.length} parcel(s) assigned to ${riders.find((r) => r.id === riderId)?.name}`);
-    setRiderId('');
-    onDone?.();
-    onClose();
+  const apply = async () => {
+    try {
+      await assignRider(rows.map((s) => s.id), riderId);
+      toast.success(`${rows.length} parcel(s) assigned to ${riders.find((r) => r.id === riderId)?.name}`);
+      setRiderId('');
+      onDone?.();
+      onClose();
+    } catch (e) { toast.error(e.message); }
   };
   return (
     <Modal
@@ -137,9 +141,11 @@ export function ShipmentList() {
     if (!cancellable.length) { toast.error('None of the selected parcels can be cancelled. Only Booked or Picked Up parcels can.'); return; }
     const ok = await confirm({ title: 'Cancel shipments?', message: `Cancel ${cancellable.length} shipment(s)? ${rows.length - cancellable.length} further selected parcel(s) are past pickup and will be skipped. This cannot be undone.`, confirmLabel: 'Cancel shipments' });
     if (!ok) return;
-    changeStatus(cancellable.map((s) => s.id), STATUS.CANCELLED, { note: 'Cancelled from shipment list' });
-    toast.success(`${cancellable.length} shipment(s) cancelled`);
-    clear();
+    try {
+      const res = await changeStatus(cancellable.map((s) => s.id), STATUS.CANCELLED, { note: 'Cancelled from shipment list' });
+      toast.success(`${res.ok} shipment(s) cancelled`);
+      clear();
+    } catch (e) { toast.error(e.message); }
   };
 
   return (

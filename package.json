@@ -9,8 +9,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "appwrite:login": "appwrite login",
-    "appwrite:push": "appwrite push all --force",
-    "appwrite:push:function": "appwrite push functions --function-id api --with-variables --force"
+    "appwrite:push": "npm run shared:sync && appwrite push all --force",
+    "appwrite:push:function": "npm run shared:sync && appwrite push functions --function-id api --with-variables --force",
+    "shared:sync": "node scripts/sync-shared.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -21,6 +22,7 @@
     "jspdf": "^2.5.2",
     "lucide-react": "^0.446.0",
     "papaparse": "^5.4.1",
+    "pdfjs-dist": "^4.10.38",
     "qrcode.react": "^4.0.1",
     "react": "^18.3.1",
     "react-barcode": "^1.5.3",

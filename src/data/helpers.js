@@ -101,19 +101,15 @@ export function branchStats(branchId, shipments, codTransactions) {
   return { ...k, cash, list };
 }
 
-export function merchantStats(merchantId, shipments, codTransactions, payouts, invoices) {
+export function merchantStats(merchantId, shipments, codTransactions, payouts) {
   const list = shipments.filter((s) => s.merchantId === merchantId);
   const txns = codTransactions.filter((t) => t.merchantId === merchantId);
   const paid = sum(payouts.filter((p) => p.merchantId === merchantId && p.status === 'Paid'), (p) => p.net);
   const payable = sum(txns.filter((t) => t.status === 'Reconciled'), (t) => toPKR(t.amount, t.currency));
   const inTransit = sum(txns.filter((t) => ['Collected', 'Deposited'].includes(t.status)), (t) => toPKR(t.amount, t.currency));
-  const invoiced = invoices.filter((i) => i.merchantId === merchantId);
-  const outstanding = sum(invoiced.filter((i) => i.status !== 'Draft'), invoiceBalance);
-  return { list, kpis: shipmentKpis(list), txns, paid, payable, inTransit, outstanding };
+  return { list, kpis: shipmentKpis(list), txns, paid, payable, inTransit };
 }
 
-export const invoicePaid = (inv) => sum(inv.payments, (p) => p.amount) + sum(inv.creditNotes, (c) => c.amount);
-export const invoiceBalance = (inv) => Math.max(inv.total - invoicePaid(inv), 0);
 
 /** Aging buckets over any list of { amount (PKR), date }. */
 export function agingBuckets(rows) {

@@ -3,11 +3,11 @@ import { useState } from 'react';
 import { Printer } from 'lucide-react';
 import DataTable from '../../components/tables/DataTable.jsx';
 import { Card, PageHeader, Tabs } from '../../components/ui/index.jsx';
-import { AirwayBill, DeliveryReceipt, InvoiceDoc, ManifestDoc, PAGE_SIZES, PickupReceipt, PrintPreview, ReturnSlip, RunSheetDoc, ShippingLabel } from '../../components/print/index.jsx';
+import { AirwayBill, DeliveryReceipt, PAGE_SIZES, PickupReceipt, PrintPreview, ReturnSlip, RunSheetDoc, ShippingLabel } from '../../components/print/index.jsx';
 import { useAuth } from '../../store/authStore.js';
 import { useData } from '../../store/dataStore.js';
 import { toast } from '../../store/uiStore.js';
-import { useLookups, useScopedShipments } from '../../hooks/useApp.js';
+import { useScopedShipments } from '../../hooks/useApp.js';
 import { fmtDateTime } from '../../utils/format.js';
 import { STATUS } from '../../utils/status.js';
 import { LabelPrintModal } from '../shipments/ShipmentList.jsx';
@@ -60,8 +60,7 @@ function LabelDesigner() {
 function OtherDocuments() {
   const user = useAuth((s) => s.user);
   const shipments = useScopedShipments();
-  const { manifests, riders, invoices, shipments: all, logPrint } = useData();
-  const { branchName, merchant } = useLookups();
+  const { riders, shipments: all, logPrint } = useData();
   const [open, setOpen] = useState(null); // { title, size, node, filename, ref }
   const [awb, setAwb] = useState('');
   const isMerchant = user.role === 'merchant';
@@ -73,7 +72,6 @@ function OtherDocuments() {
     setOpen({ title: `${name}: ${s.awb}`, size, filename: `${name.split(' ')[0].toLowerCase()}-${s.awb}`, node: <Doc shipment={s} />, kind: name, ref: s.awb });
   };
 
-  const ownInvoices = invoices.filter((i) => !isMerchant || i.merchantId === user.merchantId);
   return (
     <div className="grid items-start gap-4 lg:grid-cols-2">
       <Card title="Shipment documents">
@@ -84,18 +82,6 @@ function OtherDocuments() {
           {Object.keys(SHIP_DOCS).map((name) => <button key={name} type="button" className="btn-outline justify-start" onClick={() => openShip(name)}><Printer size={15} aria-hidden /> {name}</button>)}
         </div>
       </Card>
-      {!isMerchant && (
-        <Card title="Latest manifests" bodyClass="">
-          <ul className="divide-y divide-line">
-            {manifests.slice(0, 5).map((m) => (
-              <li key={m.id} className="flex items-center justify-between gap-2 px-4 py-2 text-sm">
-                <span className="font-medium">{m.id} <span className="font-normal text-ink-muted">{m.awbs.length} parcels</span></span>
-                <button type="button" className="btn-outline btn-sm" onClick={() => setOpen({ title: `Manifest ${m.id}`, size: 'a4', filename: `manifest-${m.id}`, kind: 'Manifest', ref: m.id, node: <ManifestDoc manifest={m} shipments={all} branchName={branchName} /> })}><Printer size={13} aria-hidden /> Print</button>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
       {!isMerchant && (
         <Card title="Run sheets" bodyClass="">
           <ul className="divide-y divide-line">
@@ -108,17 +94,6 @@ function OtherDocuments() {
           </ul>
         </Card>
       )}
-      <Card title="Invoices" bodyClass="">
-        <ul className="divide-y divide-line">
-          {ownInvoices.slice(0, 5).map((i) => (
-            <li key={i.id} className="flex items-center justify-between gap-2 px-4 py-2 text-sm">
-              <span className="font-medium">{i.number}</span>
-              <button type="button" className="btn-outline btn-sm" onClick={() => setOpen({ title: i.number, size: 'a4', filename: i.number, kind: 'Invoice', ref: i.number, node: <InvoiceDoc invoice={i} merchant={merchant(i.merchantId)} /> })}><Printer size={13} aria-hidden /> Print</button>
-            </li>
-          ))}
-          {!ownInvoices.length && <li className="px-4 py-6 text-center text-sm text-ink-muted">No invoices yet</li>}
-        </ul>
-      </Card>
       {open && (
         <PrintPreview open onClose={() => setOpen(null)} title={open.title} filename={open.filename} size={open.size} onPrint={() => logPrint(open.kind, [open.ref], open.size)}>
           {open.node}

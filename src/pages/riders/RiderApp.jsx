@@ -61,18 +61,22 @@ function DeliverModal({ shipment: s, onClose }) {
   const needsCash = s.cod > 0;
   const needsToPay = s.toPay > 0;
   const canSubmit = proofOk && (!needsCash || cash) && (!needsToPay || toPayCash) && receivedBy.trim();
-  const submit = () => {
-    const { ok } = changeStatus(s.id, STATUS.DELIVERED, { method, receivedBy: receivedBy.trim(), note: `Delivered to ${receivedBy.trim()} (${method})` });
-    if (ok) toast.success(`${s.awb} delivered${needsCash ? `, ${fmtCurrency(s.cod, s.currency)} collected` : ''}`);
-    else toast.error('This parcel is not out for delivery');
-    onClose();
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const { ok } = await changeStatus(s.id, STATUS.DELIVERED, { method, receivedBy: receivedBy.trim(), note: `Delivered to ${receivedBy.trim()} (${method})` });
+      if (ok) toast.success(`${s.awb} delivered${needsCash ? `, ${fmtCurrency(s.cod, s.currency)} collected` : ''}`);
+      else toast.error('This parcel is not out for delivery');
+      onClose();
+    } catch (e) { toast.error(e.message); } finally { setBusy(false); }
   };
   return (
     <Modal
       open
       onClose={onClose}
       title={`Deliver ${s.awb}`}
-      footer={<><button type="button" className="btn-outline" onClick={onClose}>Cancel</button><button type="button" className="btn-primary" disabled={!canSubmit} onClick={submit}><CheckCircle2 size={15} aria-hidden /> Confirm delivery</button></>}
+      footer={<><button type="button" className="btn-outline" onClick={onClose}>Cancel</button><button type="button" className="btn-primary" disabled={!canSubmit || busy} onClick={submit}><CheckCircle2 size={15} aria-hidden /> Confirm delivery</button></>}
     >
       <div className="space-y-3">
         <div>
@@ -120,10 +124,12 @@ function DeliverModal({ shipment: s, onClose }) {
 function FailModal({ shipment: s, onClose }) {
   const changeStatus = useData((st) => st.changeStatus);
   const [reason, setReason] = useState('');
-  const submit = () => {
-    const { ok } = changeStatus(s.id, STATUS.FAILED, { reason, note: reason });
-    toast[ok ? 'info' : 'error'](ok ? `${s.awb} marked failed: ${reason}` : 'This parcel is not out for delivery');
-    onClose();
+  const submit = async () => {
+    try {
+      const { ok } = await changeStatus(s.id, STATUS.FAILED, { reason, note: reason });
+      toast[ok ? 'info' : 'error'](ok ? `${s.awb} marked failed: ${reason}` : 'This parcel is not out for delivery');
+      onClose();
+    } catch (e) { toast.error(e.message); }
   };
   return (
     <Modal open onClose={onClose} title={`Failed attempt: ${s.awb}`} footer={<><button type="button" className="btn-outline" onClick={onClose}>Cancel</button><button type="button" className="btn-danger" disabled={!reason} onClick={submit}>Mark failed</button></>}>
@@ -145,10 +151,13 @@ function DepositModal({ rider, cash, onClose }) {
   const value = Number(amount);
   const valid = amount !== '' && value >= 0;
   const diff = valid ? value - cash : 0;
-  const submit = () => {
-    const dep = recordDeposit(rider.id, value);
-    if (dep) toast.success(`Deposit of ${fmtCurrency(value, rider.currency)} sent for reconciliation`);
-    onClose();
+  const submit = async () => {
+    try {
+      const dep = await recordDeposit(rider.id, value);
+      if (dep) toast.success(`Deposit of ${fmtCurrency(value, rider.currency)} sent for reconciliation`);
+      else toast.info('No collected COD to deposit');
+      onClose();
+    } catch (e) { toast.error(e.message); }
   };
   return (
     <Modal open onClose={onClose} title="Daily cash deposit" size="sm" footer={<><button type="button" className="btn-outline" onClick={onClose}>Cancel</button><button type="button" className="btn-primary" disabled={!valid} onClick={submit}>Submit deposit</button></>}>
@@ -217,9 +226,11 @@ function RiderRun({ rider }) {
   const cash = sum(cashTxns, (x) => x.amount);
   const toCollect = sum(deliveries, (s) => s.cod);
 
-  const picked = (s) => {
-    const { ok } = changeStatus(s.id, STATUS.PICKED, { note: `Collected by ${rider.name}` });
-    toast[ok ? 'success' : 'error'](ok ? `${s.awb} picked up` : 'Could not update this parcel');
+  const picked = async (s) => {
+    try {
+      const { ok } = await changeStatus(s.id, STATUS.PICKED, { note: `Collected by ${rider.name}` });
+      toast[ok ? 'success' : 'error'](ok ? `${s.awb} picked up` : 'Could not update this parcel');
+    } catch (e) { toast.error(e.message); }
   };
 
   return (

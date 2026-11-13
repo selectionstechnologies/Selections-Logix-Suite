@@ -3,17 +3,16 @@
 import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  AlertTriangle, ArrowRight, Banknote, Boxes, CheckCircle2, Clock, CreditCard, FileWarning, HandCoins, Hourglass, PackageCheck, PackageOpen, PackagePlus, Receipt, RotateCcw, TrendingUp, Truck, Wallet,
+  AlertTriangle, ArrowRight, Banknote, CheckCircle2, Clock, CreditCard, HandCoins, Hourglass, PackageCheck, PackageOpen, PackagePlus, RotateCcw, ScanLine, TrendingUp, Truck, Wallet,
 } from 'lucide-react';
 import { useAuth } from '../../store/authStore.js';
 import { useData } from '../../store/dataStore.js';
 import { useActiveBranch, useBranchFilter, useLookups, useMoney, useScopedShipments } from '../../hooks/useApp.js';
 import { Card, PageHeader, StatCard, StatusBadge } from '../../components/ui/index.jsx';
 import { AreaTrend, BarsChart, CHART, DonutChart, LinesChart } from '../../components/charts/index.jsx';
-import { agingBuckets, dailySeries, invoiceBalance, merchantStats, riderStats, shipmentKpis, statusMix, topBy } from '../../data/helpers.js';
+import { dailySeries, merchantStats, riderStats, shipmentKpis, statusMix, topBy } from '../../data/helpers.js';
 import { fmtCompact, fmtCurrency, fmtDate, fmtNumber, fmtPct, sum, toPKR } from '../../utils/format.js';
 import { NDR_GROUP, STATUS } from '../../utils/status.js';
-import { stockStatus } from '../../data/config.js';
 
 function RecentShipments({ list, limit = 6 }) {
   const { money } = useMoney();
@@ -87,7 +86,7 @@ function AdminDashboard() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-7">
         <StatCard label="Total Shipments" value={fmtNumber(k.total)} icon={PackageCheck} onClick={() => navigate('/shipments')} />
         <StatCard label="Delivered %" value={fmtPct(k.deliveredPct)} hint={`${k.delivered} delivered`} icon={CheckCircle2} />
-        <StatCard label="RTO %" value={fmtPct(k.rtoPct)} hint={`${k.rto} returned`} icon={RotateCcw} tone="danger" onClick={() => navigate('/returns')} />
+        <StatCard label="RTO %" value={fmtPct(k.rtoPct)} hint={`${k.rto} returned`} icon={RotateCcw} tone="danger" onClick={() => navigate('/shipments')} />
         <StatCard label="COD Collected" value={compact(k.codCollected)} icon={Banknote} onClick={() => navigate('/finance')} />
         <StatCard label="COD Pending" value={compact(k.codPending)} hint="Undelivered + with riders" icon={Hourglass} tone="danger" />
         <StatCard label="Revenue" value={compact(k.revenue)} hint="Excl. tax" icon={CreditCard} />
@@ -99,7 +98,7 @@ function AdminDashboard() {
         <AlertsPanel
           items={[
             { label: 'delayed shipments', value: k.delayed, hint: 'Past ETA and still moving', to: '/shipments' },
-            { label: 'failed deliveries', value: k.failed, hint: 'Need a re-attempt decision', to: '/riders/ndr' },
+            { label: 'failed deliveries', value: k.failed, hint: 'Need a re-attempt decision', to: '/shipments' },
             { label: 'unreconciled deposits', value: unreconciled.length, hint: `${money(unreconciledAmt)} awaiting accountant`, to: '/finance/reconciliation' },
             { label: 'COD with riders', value: money(k.codWithRiders), hint: 'Collected, not deposited', to: '/finance/reconciliation' },
           ]}
@@ -154,7 +153,7 @@ function BranchDashboard() {
         <Card title="Daily Shipments" className="xl:col-span-2"><AreaTrend data={daily} dataKey="shipments" name="Shipments" /></Card>
         <AlertsPanel items={[
           { label: 'parcels awaiting a rider', value: atHub, to: '/riders/dispatch' },
-          { label: 'failed or re-attempt', value: ndr, to: '/riders/ndr' },
+          { label: 'failed or re-attempt', value: ndr, to: '/shipments' },
           { label: 'delayed shipments', value: k.delayed, to: '/shipments' },
           { label: 'deposits pending', value: pending, hint: `${money(cash)} in hand`, to: '/branches' },
         ]}
@@ -171,15 +170,12 @@ function BranchDashboard() {
 function AccountantDashboard() {
   const { money, compact } = useMoney();
   const navigate = useNavigate();
-  const { shipments, riderDeposits, payouts, invoices, expenses } = useData();
+  const { shipments, riderDeposits, payouts } = useData();
+  const { merchantName } = useLookups();
   const k = useMemo(() => shipmentKpis(shipments), [shipments]);
-  const totalExpense = sum(expenses, (e) => e.amount);
-  const openInv = invoices.filter((i) => !['Draft', 'Paid'].includes(i.status));
-  const overdue = invoices.filter((i) => i.status === 'Overdue');
   const pendingDeposits = riderDeposits.filter((d) => d.status === 'Pending');
   const diffs = pendingDeposits.filter((d) => d.deposited !== d.expected);
   const pendingPayouts = payouts.filter((p) => ['Pending', 'Approved'].includes(p.status));
-  const aging = useMemo(() => agingBuckets(openInv.map((i) => ({ amount: invoiceBalance(i), date: i.issueDate }))), [openInv]);
   const flow = [
     { name: 'With riders', value: k.codWithRiders, color: CHART.red },
     { name: 'Deposited', value: k.codDeposited, color: CHART.slate },
@@ -190,31 +186,29 @@ function AccountantDashboard() {
     <>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="COD Collected" value={compact(k.codCollected)} icon={Banknote} onClick={() => navigate('/finance')} />
+        <StatCard label="With riders" value={compact(k.codWithRiders)} hint="Collected, not deposited" icon={Wallet} tone={k.codWithRiders > 0 ? 'danger' : 'default'} onClick={() => navigate('/finance/reconciliation')} />
         <StatCard label="Payable to merchants" value={compact(k.codReconciled)} hint="Reconciled COD" icon={HandCoins} onClick={() => navigate('/finance/payouts')} />
-        <StatCard label="Receivable" value={compact(sum(openInv, invoiceBalance))} hint={`${openInv.length} open invoices`} icon={Receipt} onClick={() => navigate('/finance/invoices')} />
-        <StatCard label="Net profit" value={compact(k.profit - totalExpense)} hint="Gross profit less expenses" icon={TrendingUp} tone={k.profit - totalExpense < 0 ? 'danger' : 'default'} onClick={() => navigate('/finance/ledgers')} />
+        <StatCard label="Paid out" value={compact(k.codPaid)} icon={CheckCircle2} onClick={() => navigate('/finance/payouts')} />
       </div>
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         <Card title="COD pipeline" className="xl:col-span-2"><DonutChart data={flow} format={(v) => money(v)} /></Card>
         <AlertsPanel items={[
-          { label: 'overdue invoices', value: overdue.length, hint: money(sum(overdue, invoiceBalance)), to: '/finance/invoices' },
           { label: 'deposits to reconcile', value: pendingDeposits.length, hint: `${diffs.length} with a shortage or excess`, to: '/finance/reconciliation' },
           { label: 'payouts awaiting action', value: pendingPayouts.length, hint: money(sum(pendingPayouts, (p) => p.net)), to: '/finance/payouts' },
         ]}
         />
       </div>
-      <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <Card title="Receivables aging"><BarsChart data={aging} height={240} format={(v) => compact(v)} series={[{ key: 'value', name: 'Outstanding' }]} /></Card>
-        <Card title="Latest overdue invoices" bodyClass="">
+      <div className="mt-4">
+        <Card title="Payouts awaiting action" bodyClass="">
           <ul className="divide-y divide-line">
-            {overdue.slice(0, 6).map((i) => (
-              <li key={i.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
-                <Link to={`/finance/invoices/${i.id}`} className="link">{i.number}</Link>
-                <span className="text-xs text-ink-muted">Due {fmtDate(i.dueDate)}</span>
-                <span className="font-semibold text-danger">{money(invoiceBalance(i))}</span>
+            {pendingPayouts.slice(0, 6).map((po) => (
+              <li key={po.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                <span className="font-medium">{merchantName(po.merchantId)}</span>
+                <span className="text-xs text-ink-muted">{po.status} - {fmtDate(po.createdAt)}</span>
+                <span className="font-semibold">{money(po.net)}</span>
               </li>
             ))}
-            {!overdue.length && <li className="px-4 py-8 text-center text-sm text-ink-muted">No overdue invoices</li>}
+            {!pendingPayouts.length && <li className="px-4 py-8 text-center text-sm text-ink-muted">Nothing waiting</li>}
           </ul>
         </Card>
       </div>
@@ -226,44 +220,28 @@ function MerchantDashboard() {
   const navigate = useNavigate();
   const { money, compact } = useMoney();
   const user = useAuth((s) => s.user);
-  const { shipments, codTransactions, payouts, invoices, tickets } = useData();
-  const stats = useMemo(() => merchantStats(user.merchantId, shipments, codTransactions, payouts, invoices), [user, shipments, codTransactions, payouts, invoices]);
+  const { shipments, codTransactions, payouts } = useData();
+  const stats = useMemo(() => merchantStats(user.merchantId, shipments, codTransactions, payouts), [user, shipments, codTransactions, payouts]);
   const k = stats.kpis;
   const daily = useMemo(() => dailySeries(stats.list, 14), [stats.list]);
   const mix = useMemo(() => statusMix(stats.list), [stats.list]);
-  const myTickets = tickets.filter((x) => x.merchantId === user.merchantId && ['Open', 'In Progress'].includes(x.status));
   return (
     <>
       <div className="mb-4 flex flex-wrap gap-2">
         <Link to="/shipments/new" className="btn-primary"><PackagePlus size={16} aria-hidden /> Create Shipment</Link>
         <Link to="/portal/payouts" className="btn-outline"><HandCoins size={16} aria-hidden /> Request payout</Link>
-        <Link to="/portal/tickets" className="btn-outline">Raise ticket</Link>
       </div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Total Shipments" value={fmtNumber(k.total)} icon={PackageCheck} onClick={() => navigate('/shipments')} />
         <StatCard label="Delivered %" value={fmtPct(k.deliveredPct)} hint={`RTO ${fmtPct(k.rtoPct)}`} icon={CheckCircle2} />
         <StatCard label="Payable COD" value={compact(stats.payable)} hint={`${compact(stats.inTransit)} in collection`} icon={Wallet} onClick={() => navigate('/portal/cod')} />
-        <StatCard label="Outstanding invoices" value={compact(stats.outstanding)} icon={Receipt} tone={stats.outstanding > 0 ? 'danger' : 'default'} onClick={() => navigate('/portal/invoices')} />
+        <StatCard label="Paid out" value={compact(stats.paid)} hint="COD paid to you so far" icon={HandCoins} onClick={() => navigate('/portal/payouts')} />
       </div>
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         <Card title="Daily Shipments" className="xl:col-span-2"><AreaTrend data={daily} dataKey="shipments" name="Shipments" /></Card>
         <Card title="Status Mix"><DonutChart data={mix} /></Card>
       </div>
-      <div className="mt-4 grid gap-4 xl:grid-cols-3">
-        <div className="xl:col-span-2"><RecentShipments list={stats.list} /></div>
-        <Card title="Open tickets" bodyClass="">
-          <ul className="divide-y divide-line">
-            {myTickets.slice(0, 6).map((x) => (
-              <li key={x.id} className="px-4 py-2.5">
-                <Link to={`/portal/tickets/${x.id}`} className="link text-sm">{x.id}</Link>
-                <p className="truncate text-xs text-ink-muted">{x.subject}</p>
-              </li>
-            ))}
-            {!myTickets.length && <li className="px-4 py-8 text-center text-sm text-ink-muted">No open tickets</li>}
-          </ul>
-          <p className="border-t border-line px-4 py-2 text-xs text-ink-muted">Paid out so far: <b className="text-ink">{money(stats.paid)}</b></p>
-        </Card>
-      </div>
+      <div className="mt-4"><RecentShipments list={stats.list} /></div>
     </>
   );
 }
@@ -299,41 +277,30 @@ function RiderDashboardFor({ rider }) {
 
 function WarehouseDashboard() {
   const navigate = useNavigate();
-  const { inventory, pickOrders, inbounds, stockMoves } = useData();
-  const scoped = useBranchFilter(inventory);
-  const low = scoped.filter((i) => stockStatus(i) !== 'In Stock');
-  const expected = inbounds.filter((i) => i.status !== 'Received');
-  const stages = ['New', 'Picking', 'Packing', 'Ready to Ship'].map((name) => ({ name, value: pickOrders.filter((o) => o.status === name).length }));
-  const open = pickOrders.filter((o) => o.status !== 'Ready to Ship');
+  const list = useScopedShipments();
+  const count = (st) => list.filter((x) => x.status === st).length;
+  const toPick = count(STATUS.BOOKED);
+  const atOrigin = count(STATUS.ORIGIN);
+  const atDest = count(STATUS.DEST);
+  const transit = count(STATUS.TRANSIT);
+  const stages = [
+    { name: 'Picked up', value: count(STATUS.PICKED) },
+    { name: 'At origin hub', value: count(STATUS.ORIGIN) },
+    { name: 'In transit', value: transit },
+    { name: 'At destination hub', value: atDest },
+    { name: 'Out for delivery', value: count(STATUS.OFD) },
+  ];
   return (
     <>
+      <Link to="/shipments/scan" className="btn-primary mb-4 w-full sm:w-auto"><ScanLine size={16} aria-hidden /> Open Parcel Scan</Link>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="SKUs" value={fmtNumber(scoped.length)} icon={Boxes} onClick={() => navigate('/warehouse/inventory')} />
-        <StatCard label="Units in stock" value={fmtNumber(sum(scoped, (i) => i.stock))} icon={PackageCheck} />
-        <StatCard label="Open orders" value={open.length} icon={Clock} onClick={() => navigate('/warehouse/pick-pack')} />
-        <StatCard label="Low stock SKUs" value={low.length} icon={FileWarning} tone={low.length ? 'danger' : 'default'} onClick={() => navigate('/warehouse/inventory')} />
+        <StatCard label="Awaiting pickup" value={toPick} icon={Clock} onClick={() => navigate('/shipments')} />
+        <StatCard label="At origin hub" value={atOrigin} hint="To sort and send out" icon={PackageCheck} onClick={() => navigate('/shipments/scan')} />
+        <StatCard label="In transit" value={transit} icon={Truck} />
+        <StatCard label="At destination hub" value={atDest} hint="To hand to riders" icon={PackageOpen} onClick={() => navigate('/shipments/scan')} />
       </div>
-      <div className="mt-4 grid gap-4 xl:grid-cols-3">
-        <Card title="Orders by stage" className="xl:col-span-2"><BarsChart data={stages} height={240} series={[{ key: 'value', name: 'Orders' }]} /></Card>
-        <AlertsPanel items={[
-          ...low.slice(0, 3).map((i) => ({ label: i.name, value: `${i.stock} left:`, hint: `Reorder at ${i.reorder} - bin ${i.bin}`, to: '/warehouse/inventory' })),
-          { label: 'inbound receipts open', value: expected.length, to: '/warehouse/inbound' },
-        ]}
-        />
-      </div>
-      <div className="mt-4">
-        <Card title="Latest stock movements" bodyClass="">
-          <ul className="divide-y divide-line">
-            {stockMoves.slice(0, 6).map((m) => (
-              <li key={m.id} className="flex flex-wrap justify-between gap-2 px-4 py-2 text-sm">
-                <span className="font-medium">{m.type} x{m.qty}</span>
-                <span className="text-ink-muted">{inventory.find((i) => i.id === m.skuId)?.name}</span>
-                <span className="text-xs text-ink-muted">{fmtDate(m.date)}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      </div>
+      <div className="mt-4"><Card title="Parcels by stage"><BarsChart data={stages} height={240} series={[{ key: 'value', name: 'Parcels' }]} /></Card></div>
+      <div className="mt-4"><RecentShipments list={list} /></div>
     </>
   );
 }

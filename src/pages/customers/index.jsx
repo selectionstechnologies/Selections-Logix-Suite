@@ -9,8 +9,8 @@ import { useData } from '../../store/dataStore.js';
 import { confirm, toast } from '../../store/uiStore.js';
 import { useBranchFilter, useLookups, useMoney } from '../../hooks/useApp.js';
 import { CITY_MAP, CITY_NAMES } from '../../data/geo.js';
-import { invoiceBalance, merchantStats } from '../../data/helpers.js';
-import { fmtDate, fmtDateTime, fmtNumber, fmtPct, uid } from '../../utils/format.js';
+import { merchantStats } from '../../data/helpers.js';
+import { fmtDate, fmtNumber, fmtPct, uid } from '../../utils/format.js';
 import { shipmentColumns } from '../shipments/columns.jsx';
 
 const FIELDS = [
@@ -96,17 +96,15 @@ export function CustomerDetail() {
   const { money, compact } = useMoney();
   const lookups = useLookups();
   const store = useData();
-  const { merchants, shipments, codTransactions, payouts, invoices, tickets, auditLog, updateItem, removeItem } = store;
+  const { merchants, shipments, codTransactions, payouts, auditLog, updateItem, removeItem } = store;
   const [tab, setTab] = useState('overview');
   const [editing, setEditing] = useState(false);
   const m = merchants.find((x) => x.id === id);
-  const stats = useMemo(() => merchantStats(id, shipments, codTransactions, payouts, invoices), [id, shipments, codTransactions, payouts, invoices]);
+  const stats = useMemo(() => merchantStats(id, shipments, codTransactions, payouts), [id, shipments, codTransactions, payouts]);
   const columns = useMemo(() => shipmentColumns({ money, lookups, compact: true }).filter((c) => c.key !== 'merchant'), [money, lookups]);
   if (!m) return <RecordNotFound what="Customer" backTo="/customers" backLabel="Back to customers" />;
 
-  const myInvoices = invoices.filter((i) => i.merchantId === id);
   const myPayouts = payouts.filter((p) => p.merchantId === id);
-  const myTickets = tickets.filter((t) => t.merchantId === id);
   const activity = auditLog.filter((a) => a.detail?.includes(m.name)).slice(0, 15);
 
   const addDocs = (files) => {
@@ -126,7 +124,7 @@ export function CustomerDetail() {
     <div>
       <PageHeader
         title={m.name}
-        subtitle={`${m.type} - ${m.city} - joined ${fmtDate(m.joinedAt)}`}
+        subtitle={`${m.city} - joined ${fmtDate(m.joinedAt)}`}
         actions={(
           <>
             <StatusBadge status={m.status} />
@@ -135,11 +133,10 @@ export function CustomerDetail() {
           </>
         )}
       />
-      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-3">
         <StatCard label="Shipments" value={fmtNumber(stats.list.length)} hint={`${fmtPct(stats.kpis.deliveredPct)} delivered`} />
         <StatCard label="COD payable" value={compact(stats.payable)} hint={`${compact(stats.inTransit)} in collection`} />
         <StatCard label="Paid out" value={compact(stats.paid)} />
-        <StatCard label="Outstanding invoices" value={compact(stats.outstanding)} tone={stats.outstanding > 0 ? 'danger' : 'default'} />
       </div>
       <Tabs
         value={tab}
@@ -148,9 +145,7 @@ export function CustomerDetail() {
           { value: 'overview', label: 'Overview' },
           { value: 'shipments', label: 'Shipments', count: stats.list.length },
           { value: 'cod', label: 'COD', count: stats.txns.length },
-          { value: 'invoices', label: 'Invoices', count: myInvoices.length },
           { value: 'payouts', label: 'Payouts', count: myPayouts.length },
-          { value: 'tickets', label: 'Tickets', count: myTickets.length },
           { value: 'activity', label: 'Activity' },
         ]}
       />
@@ -201,20 +196,6 @@ export function CustomerDetail() {
           ]}
         />
       )}
-      {tab === 'invoices' && (
-        <DataTable
-          data={myInvoices}
-          exportName={`invoices-${id}`}
-          onRowClick={(i) => navigate(`/finance/invoices/${i.id}`)}
-          columns={[
-            { key: 'number', header: 'Invoice' },
-            { key: 'issueDate', header: 'Issued', render: (i) => fmtDate(i.issueDate) },
-            { key: 'total', header: 'Total', align: 'right', render: (i) => money(i.total) },
-            { key: 'bal', header: 'Balance', align: 'right', value: invoiceBalance, render: (i) => money(invoiceBalance(i)) },
-            { key: 'status', header: 'Status', render: (i) => <StatusBadge status={i.status} />, value: (i) => i.status },
-          ]}
-        />
-      )}
       {tab === 'payouts' && (
         <DataTable
           data={myPayouts}
@@ -229,109 +210,8 @@ export function CustomerDetail() {
           ]}
         />
       )}
-      {tab === 'tickets' && (
-        <DataTable
-          data={myTickets}
-          exportName={`tickets-${id}`}
-          onRowClick={(t) => navigate(`/support/${t.id}`)}
-          columns={[
-            { key: 'id', header: 'Ticket' },
-            { key: 'subject', header: 'Subject' },
-            { key: 'priority', header: 'Priority', render: (t) => <StatusBadge status={t.priority} />, value: (t) => t.priority },
-            { key: 'status', header: 'Status', render: (t) => <StatusBadge status={t.status} />, value: (t) => t.status },
-            { key: 'createdAt', header: 'Opened', render: (t) => fmtDateTime(t.createdAt) },
-          ]}
-        />
-      )}
-      {tab === 'activity' && (
-        <Card>
-          {!activity.length && <p className="py-6 text-center text-sm text-ink-muted">No recorded activity yet. Changes to this customer appear here.</p>}
-          <ul className="space-y-2">
-            {activity.map((a) => <li key={a.id} className="flex flex-wrap justify-between gap-2 border-b border-line pb-2 text-sm last:border-0"><span>{a.action}: {a.detail}</span><span className="text-xs text-ink-muted">{a.user} - {fmtDateTime(a.at)}</span></li>)}
-          </ul>
-        </Card>
-      )}
-      <FormModal open={editing} size="lg" onClose={() => setEditing(false)} title={`Edit ${m.name}`} fields={FIELDS} defaultValues={m} onSubmit={(v) => { updateItem('merchants', id, { ...v, branchId: CITY_MAP[v.city].branchId }, 'Customer', `${v.name} edited`); setEditing(false); toast.success('Customer updated'); }} />
     </div>
   );
 }
 
 /** Saved receivers and pickup locations. Also used from the merchant portal. */
-export function AddressBook({ merchantId: lockedId }) {
-  const { merchants, updateItem } = useData();
-  const { merchantOptions } = useLookups();
-  const [selected, setSelected] = useState(lockedId || merchants[0]?.id);
-  const [modal, setModal] = useState(null); // 'receiver' | 'pickup'
-  const m = merchants.find((x) => x.id === (lockedId || selected));
-  if (!m) return null;
-
-  const remove = async (kind, entry) => {
-    const key = kind === 'receiver' ? 'receivers' : 'pickups';
-    if (await confirm({ title: 'Remove address?', message: `${entry.name || entry.label} will be removed from the address book.`, confirmLabel: 'Remove' })) {
-      updateItem('merchants', m.id, (x) => ({ [key]: x[key].filter((e) => e.id !== entry.id) }), 'Customer', `${m.name}: address removed`);
-      toast.success('Address removed');
-    }
-  };
-
-  return (
-    <div>
-      <PageHeader title="Address Book" subtitle="Saved receivers and pickup locations are offered during booking." />
-      {!lockedId && (
-        <div className="card mb-4 p-4">
-          <label htmlFor="abm" className="label">Customer</label>
-          <select id="abm" className="input sm:max-w-sm" value={selected} onChange={(e) => setSelected(e.target.value)}>
-            {merchantOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </div>
-      )}
-      <div className="grid items-start gap-4 lg:grid-cols-2">
-        <Card title="Saved receivers" bodyClass="" actions={<button type="button" className="btn-outline btn-sm" onClick={() => setModal('receiver')}><Plus size={13} aria-hidden /> Add</button>}>
-          <ul className="divide-y divide-line">
-            {m.receivers.map((r) => (
-              <li key={r.id} className="flex items-center justify-between gap-2 px-4 py-2.5 text-sm">
-                <span className="min-w-0"><span className="block font-medium">{r.name}</span><span className="block truncate text-xs text-ink-muted">{r.address}, {r.city} - {r.phone}</span></span>
-                <button type="button" className="text-ink-muted hover:text-danger" aria-label={`Remove ${r.name}`} onClick={() => remove('receiver', r)}><Trash2 size={14} /></button>
-              </li>
-            ))}
-            {!m.receivers.length && <li className="px-4 py-8 text-center text-sm text-ink-muted">No saved receivers yet</li>}
-          </ul>
-        </Card>
-        <Card title="Pickup locations" bodyClass="" actions={<button type="button" className="btn-outline btn-sm" onClick={() => setModal('pickup')}><Plus size={13} aria-hidden /> Add</button>}>
-          <ul className="divide-y divide-line">
-            {m.pickups.map((p) => (
-              <li key={p.id} className="flex items-center justify-between gap-2 px-4 py-2.5 text-sm">
-                <span className="min-w-0"><span className="block font-medium">{p.label}</span><span className="block truncate text-xs text-ink-muted">{p.address}, {p.city}</span></span>
-                <button type="button" className="text-ink-muted hover:text-danger" aria-label={`Remove ${p.label}`} onClick={() => remove('pickup', p)}><Trash2 size={14} /></button>
-              </li>
-            ))}
-            {!m.pickups.length && <li className="px-4 py-8 text-center text-sm text-ink-muted">No pickup locations yet</li>}
-          </ul>
-        </Card>
-      </div>
-      <FormModal
-        open={modal === 'receiver'}
-        onClose={() => setModal(null)}
-        title="Add receiver"
-        fields={[
-          { name: 'name', label: 'Name', required: true },
-          { name: 'phone', label: 'Phone', required: true, phone: true },
-          { name: 'address', label: 'Address', required: true, full: true },
-          { name: 'city', label: 'City', type: 'select', options: CITY_NAMES, required: true },
-        ]}
-        onSubmit={(v) => { updateItem('merchants', m.id, (x) => ({ receivers: [{ id: uid('RC'), ...v }, ...x.receivers] }), 'Customer', `${m.name}: receiver added`); setModal(null); toast.success('Receiver saved'); }}
-      />
-      <FormModal
-        open={modal === 'pickup'}
-        onClose={() => setModal(null)}
-        title="Add pickup location"
-        fields={[
-          { name: 'label', label: 'Label', required: true, placeholder: 'Main warehouse' },
-          { name: 'city', label: 'City', type: 'select', options: CITY_NAMES, required: true },
-          { name: 'address', label: 'Address', required: true, full: true },
-        ]}
-        onSubmit={(v) => { updateItem('merchants', m.id, (x) => ({ pickups: [...x.pickups, { id: uid('PK'), ...v, phone: x.phone }] }), 'Customer', `${m.name}: pickup added`); setModal(null); toast.success('Pickup location saved'); }}
-      />
-    </div>
-  );
-}
-

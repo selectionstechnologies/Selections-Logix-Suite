@@ -1,8 +1,8 @@
 # Selections Logix Suite
 
-**Ship. Collect. Control.** An all-in-one logistics management frontend by Selections Technologies, covering courier, COD, cargo, warehouse, customs, returns, finance and support.
+**Ship. Collect. Control.** A logistics management app by Selections Technologies, covering courier booking, labels, rider dispatch, COD collection and merchant payouts.
 
-Accounts, roles, branches, customer accounts, riders and staff are stored in Appwrite (Cloud, free plan). There is no sample data: shipments, COD, warehouse, cargo and the other operational modules start empty and are saved in the browser until they move to the database.
+Accounts, roles, branches, customer accounts, riders and staff are stored in Appwrite (Cloud, free plan). There is no sample data: shipments, COD and payouts and the other operational modules start empty and are saved in the browser until they move to the database.
 
 ## Run it
 
@@ -39,11 +39,11 @@ Accounts, roles, branches, customer accounts, riders and staff are stored in App
 | Role | Created from | Form captures | Sees |
 | --- | --- | --- | --- |
 | Super Admin | Users & Roles | Login, contact, employment | Everything; the only role that creates logins |
-| Branch Manager | Users & Roles | Login, branch, employment, emergency contact | Own branch: operations, riders, customers, reports |
-| Accountant | Users & Roles | Login, optional branch, employment | COD, reconciliation, payouts, invoices, ledgers, all customer accounts (read only) |
-| Warehouse Staff | Users & Roles | Login, branch, shift, employment | Inventory, inbound, pick & pack, hub scan, returns |
+| Branch Manager | Users & Roles | Login, branch, employment, emergency contact | Own branch: operations, riders, customers |
+| Accountant | Users & Roles | Login, optional branch, employment | COD, rider reconciliation, payouts, rate cards (view), all customer accounts (read only) |
+| Warehouse Staff | Users & Roles | Login, branch, shift, employment | Hub operations: shipments, parcel scan, labels |
 | Rider | Users & Roles | Login, branch, city, zone, vehicle, plate, licence and expiry, emergency contact | Rider app and own dashboard |
-| Merchant / Customer | Customer Accounts (login optional), or Users & Roles for an existing account | See below | Own shipments, COD ledger, payouts, invoices, tickets, My Account |
+| Merchant / Customer | Customer Accounts (login optional), or Users & Roles for an existing account | See below | Own shipments, COD ledger, payouts, My Account |
 
 **Customer account form:** business name, customer type, shipping plan (COD, Shipment, Corporate and/or Cargo; Create Shipment applies it so payment settings are not chosen per parcel), owner name, CNIC, NTN, phone, email, office address, city, branch; multiple pickup addresses, each with its return address or "same as pickup"; points of contact (name, designation, phone, email); bank detail (bank from a drop-down list, account title, IBAN); documents such as CNIC front/back and cheque copy (PDF, JPG, PNG or WEBP, up to 10 MB each), which can be viewed and downloaded later.
 
@@ -63,7 +63,7 @@ Create one user per role in Users & Roles first (for the merchant, a customer ac
 ## Where data is stored
 
 - **Database (Appwrite):** users and roles, branches, customer accounts with pickup addresses, contacts, bank details and documents, riders, staff, each customer's saved receivers (one per phone number; filled in automatically when the number is typed again), and the rate card with city / province rates (Finance > Rate Cards, editable by the Super Admin).
-- **This browser only, for now:** shipments, COD, payouts, invoices, warehouse, cargo, customs, returns, tickets and the audit log. These start empty and are saved in the browser's localStorage, so they are not shared between computers or users yet. Clear them at Administration > Settings > Local data. Moving them to the database is the next step.
+- **This browser only, for now:** shipments, COD, payouts and the audit log. These start empty and are saved in the browser's localStorage, so they are not shared between computers or users yet. Clear them at Administration > Settings > Local data. Moving them to the database is the next step.
 - **Not live yet:** WhatsApp, SMS, email, courier APIs, payment gateways and store connections only change on-screen state.
 - **Reference values:** FX rates, HS codes and duty rates are fixed values in the code; check current figures before quoting.
 

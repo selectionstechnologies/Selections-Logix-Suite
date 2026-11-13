@@ -134,8 +134,9 @@
       "columns": [
         { "key": "account_no", "type": "varchar", "size": 20, "required": true, "array": false },
         { "key": "business_name", "type": "varchar", "size": 120, "required": true, "array": false },
-        { "key": "customer_type", "type": "string", "format": "enum", "elements": ["E-commerce Merchant", "Corporate", "SME / Retail", "Individual", "Marketplace Seller"], "required": true, "array": false },
+        { "key": "customer_type", "type": "string", "format": "enum", "elements": ["E-commerce Merchant", "Corporate", "SME / Retail", "Individual", "Marketplace Seller"], "required": false, "array": false, "default": null },
         { "key": "shipping_plans", "type": "varchar", "size": 20, "required": false, "array": true },
+        { "key": "payment_types", "type": "varchar", "size": 10, "required": false, "array": true },
         { "key": "owner_name", "type": "varchar", "size": 80, "required": true, "array": false },
         { "key": "cnic", "type": "varchar", "size": 15, "required": false, "array": false },
         { "key": "ntn", "type": "varchar", "size": 15, "required": false, "array": false },
@@ -209,6 +210,25 @@
       ]
     },
     {
+      "$id": "customer_bank_accounts",
+      "databaseId": "logix",
+      "name": "customer_bank_accounts",
+      "enabled": true,
+      "rowSecurity": true,
+      "$permissions": [],
+      "columns": [
+        { "key": "customer_id", "type": "varchar", "size": 36, "required": true, "array": false },
+        { "key": "bank_name", "type": "varchar", "size": 80, "required": true, "array": false },
+        { "key": "account_title", "type": "varchar", "size": 100, "required": true, "array": false },
+        { "key": "iban", "type": "varchar", "size": 34, "required": true, "array": false },
+        { "key": "is_primary", "type": "boolean", "required": false, "array": false, "default": false },
+        { "key": "sort_order", "type": "integer", "required": false, "array": false, "default": 0 }
+      ],
+      "indexes": [
+        { "key": "customer_idx", "type": "key", "columns": ["customer_id"], "orders": ["ASC"] }
+      ]
+    },
+    {
       "$id": "customer_documents",
       "databaseId": "logix",
       "name": "customer_documents",
@@ -217,7 +237,7 @@
       "$permissions": [],
       "columns": [
         { "key": "customer_id", "type": "varchar", "size": 36, "required": true, "array": false },
-        { "key": "doc_type", "type": "string", "format": "enum", "elements": ["CNIC Front", "CNIC Back", "Cheque", "NTN Certificate", "Business Registration", "Agreement", "Other"], "required": true, "array": false },
+        { "key": "doc_type", "type": "string", "format": "enum", "elements": ["Company Docs", "Agreement", "Other", "CNIC Front", "CNIC Back", "Cheque", "NTN Certificate", "Business Registration"], "required": true, "array": false, "default": null },
         { "key": "file_name", "type": "varchar", "size": 255, "required": true, "array": false },
         { "key": "file_id", "type": "varchar", "size": 36, "required": true, "array": false },
         { "key": "mime_type", "type": "varchar", "size": 100, "required": false, "array": false },
@@ -270,6 +290,121 @@
       "indexes": []
     },
     {
+      "$id": "shipments",
+      "databaseId": "logix",
+      "name": "shipments",
+      "enabled": true,
+      "rowSecurity": true,
+      "$permissions": [],
+      "columns": [
+        { "key": "awb", "type": "varchar", "size": 20, "required": true, "array": false },
+        { "key": "merchant_id", "type": "varchar", "size": 36, "required": false, "array": false },
+        { "key": "origin_branch_id", "type": "varchar", "size": 10, "required": false, "array": false },
+        { "key": "dest_branch_id", "type": "varchar", "size": 10, "required": false, "array": false },
+        { "key": "origin_city", "type": "varchar", "size": 60, "required": false, "array": false },
+        { "key": "dest_city", "type": "varchar", "size": 60, "required": false, "array": false },
+        { "key": "status", "type": "varchar", "size": 40, "required": true, "array": false },
+        { "key": "service", "type": "varchar", "size": 20, "required": false, "array": false },
+        { "key": "payment_type", "type": "varchar", "size": 10, "required": false, "array": false },
+        { "key": "pay_term", "type": "varchar", "size": 10, "required": false, "array": false },
+        { "key": "plan", "type": "varchar", "size": 10, "required": false, "array": false },
+        { "key": "cod", "type": "double", "required": false, "array": false, "default": 0 },
+        { "key": "cod_status", "type": "varchar", "size": 20, "required": false, "array": false },
+        { "key": "currency", "type": "varchar", "size": 5, "required": false, "array": false },
+        { "key": "rider_id", "type": "varchar", "size": 36, "required": false, "array": false },
+        { "key": "pickup_rider_id", "type": "varchar", "size": 36, "required": false, "array": false },
+        { "key": "created_by", "type": "varchar", "size": 36, "required": false, "array": false },
+        { "key": "eta", "type": "varchar", "size": 30, "required": false, "array": false },
+        { "key": "total", "type": "double", "required": false, "array": false, "default": 0 },
+        { "key": "data", "type": "mediumtext", "required": true, "array": false }
+      ],
+      "indexes": [
+        { "key": "awb_unique", "type": "unique", "columns": ["awb"], "orders": ["ASC"] },
+        { "key": "merchant_idx", "type": "key", "columns": ["merchant_id"], "orders": ["ASC"] },
+        { "key": "status_idx", "type": "key", "columns": ["status"], "orders": ["ASC"] },
+        { "key": "origin_idx", "type": "key", "columns": ["origin_branch_id"], "orders": ["ASC"] },
+        { "key": "dest_idx", "type": "key", "columns": ["dest_branch_id"], "orders": ["ASC"] },
+        { "key": "rider_idx", "type": "key", "columns": ["rider_id"], "orders": ["ASC"] },
+        { "key": "pickup_rider_idx", "type": "key", "columns": ["pickup_rider_id"], "orders": ["ASC"] }
+      ]
+    },
+    {
+      "$id": "cod_transactions",
+      "databaseId": "logix",
+      "name": "cod_transactions",
+      "enabled": true,
+      "rowSecurity": true,
+      "$permissions": [],
+      "columns": [
+        { "key": "shipment_id", "type": "varchar", "size": 36, "required": true, "array": false },
+        { "key": "awb", "type": "varchar", "size": 20, "required": false, "array": false },
+        { "key": "rider_id", "type": "varchar", "size": 36, "required": false, "array": false },
+        { "key": "merchant_id", "type": "varchar", "size": 36, "required": false, "array": false },
+        { "key": "branch_id", "type": "varchar", "size": 10, "required": false, "array": false },
+        { "key": "amount", "type": "double", "required": false, "array": false, "default": 0 },
+        { "key": "currency", "type": "varchar", "size": 5, "required": false, "array": false },
+        { "key": "status", "type": "varchar", "size": 20, "required": true, "array": false },
+        { "key": "collected_at", "type": "varchar", "size": 30, "required": false, "array": false },
+        { "key": "deposit_id", "type": "varchar", "size": 36, "required": false, "array": false },
+        { "key": "payout_id", "type": "varchar", "size": 36, "required": false, "array": false }
+      ],
+      "indexes": [
+        { "key": "rider_idx", "type": "key", "columns": ["rider_id"], "orders": ["ASC"] },
+        { "key": "merchant_idx", "type": "key", "columns": ["merchant_id"], "orders": ["ASC"] },
+        { "key": "status_idx", "type": "key", "columns": ["status"], "orders": ["ASC"] },
+        { "key": "shipment_idx", "type": "key", "columns": ["shipment_id"], "orders": ["ASC"] }
+      ]
+    },
+    {
+      "$id": "rider_deposits",
+      "databaseId": "logix",
+      "name": "rider_deposits",
+      "enabled": true,
+      "rowSecurity": true,
+      "$permissions": [],
+      "columns": [
+        { "key": "rider_id", "type": "varchar", "size": 36, "required": true, "array": false },
+        { "key": "branch_id", "type": "varchar", "size": 10, "required": false, "array": false },
+        { "key": "currency", "type": "varchar", "size": 5, "required": false, "array": false },
+        { "key": "expected", "type": "double", "required": false, "array": false, "default": 0 },
+        { "key": "deposited", "type": "double", "required": false, "array": false, "default": 0 },
+        { "key": "status", "type": "varchar", "size": 20, "required": true, "array": false },
+        { "key": "txn_ids", "type": "mediumtext", "required": false, "array": false },
+        { "key": "note", "type": "varchar", "size": 300, "required": false, "array": false },
+        { "key": "at", "type": "varchar", "size": 30, "required": false, "array": false }
+      ],
+      "indexes": [
+        { "key": "rider_idx", "type": "key", "columns": ["rider_id"], "orders": ["ASC"] },
+        { "key": "status_idx", "type": "key", "columns": ["status"], "orders": ["ASC"] }
+      ]
+    },
+    {
+      "$id": "payouts",
+      "databaseId": "logix",
+      "name": "payouts",
+      "enabled": true,
+      "rowSecurity": true,
+      "$permissions": [],
+      "columns": [
+        { "key": "batch", "type": "varchar", "size": 30, "required": false, "array": false },
+        { "key": "merchant_id", "type": "varchar", "size": 36, "required": true, "array": false },
+        { "key": "txn_ids", "type": "mediumtext", "required": false, "array": false },
+        { "key": "shipments", "type": "integer", "required": false, "array": false, "default": 0 },
+        { "key": "gross", "type": "double", "required": false, "array": false, "default": 0 },
+        { "key": "shipping", "type": "double", "required": false, "array": false, "default": 0 },
+        { "key": "cod_fee", "type": "double", "required": false, "array": false, "default": 0 },
+        { "key": "returns", "type": "double", "required": false, "array": false, "default": 0 },
+        { "key": "net", "type": "double", "required": false, "array": false, "default": 0 },
+        { "key": "status", "type": "varchar", "size": 20, "required": true, "array": false },
+        { "key": "paid_at", "type": "varchar", "size": 30, "required": false, "array": false },
+        { "key": "reference", "type": "varchar", "size": 100, "required": false, "array": false }
+      ],
+      "indexes": [
+        { "key": "merchant_idx", "type": "key", "columns": ["merchant_id"], "orders": ["ASC"] },
+        { "key": "status_idx", "type": "key", "columns": ["status"], "orders": ["ASC"] }
+      ]
+    },
+    {
       "$id": "counters",
       "databaseId": "logix",
       "name": "counters",
@@ -309,7 +444,7 @@
       "$id": "api",
       "name": "api",
       "runtime": "node-22",
-      "execute": ["users"],
+      "execute": ["any"],
       "events": [],
       "schedule": "",
       "timeout": 30,

@@ -105,7 +105,7 @@ function GlobalSearch() {
   const can = useCan();
   const navigate = useNavigate();
   const user = useAuth((s) => s.user);
-  const { shipments, merchants, riders, tickets } = useData();
+  const { shipments, merchants, riders } = useData();
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [cursor, setCursor] = useState(0);
@@ -130,9 +130,8 @@ function GlobalSearch() {
       .map((s) => ({ key: s.id, type: 'Shipment', label: s.awb, sub: `${s.receiver.name} - ${s.destCity}`, to: user.role === 'rider' ? '/rider-app' : `/shipments/${s.id}` }));
     if (can('customers')) merchants.filter((m) => has(m.name, m.contact, m.phone)).slice(0, 3).forEach((m) => out.push({ key: m.id, type: 'Customer', label: m.name, sub: m.city, to: `/customers/${m.id}` }));
     if (can('riders')) riders.filter((r) => has(r.name, r.phone)).slice(0, 3).forEach((r) => out.push({ key: r.id, type: 'Rider', label: r.name, sub: r.zone, to: `/riders/${r.id}` }));
-    if (can('support')) tickets.filter((k) => has(k.id, k.subject, k.awb)).slice(0, 3).forEach((k) => out.push({ key: k.id, type: 'Ticket', label: k.id, sub: k.subject, to: `/support/${k.id}` }));
     return out;
-  }, [q, shipments, merchants, riders, tickets, user, can]);
+  }, [q, shipments, merchants, riders, user, can]);
 
   const go = (r) => { navigate(r.to); setQ(''); setOpen(false); };
   const onKeyDown = (e) => {

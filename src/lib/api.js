@@ -5,8 +5,8 @@ import { BUCKET, ID, Query, T, callApi, friendlyError, getRow, listAll, storage 
 
 export const MAX_DOC_BYTES = 10 * 1024 * 1024;
 export const DOC_MIME = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
-export const DOC_TYPES = ['CNIC Front', 'CNIC Back', 'Cheque', 'NTN Certificate', 'Business Registration', 'Agreement', 'Other'];
-export const CUSTOMER_TYPES = ['E-commerce Merchant', 'Corporate', 'SME / Retail', 'Individual', 'Marketplace Seller'];
+// Company Docs: CNIC, NTN, cheque, registration etc. together in one PDF.
+export const DOC_TYPES = ['Company Docs', 'Agreement', 'Other'];
 export const RATE_CARDS = ['Standard', 'Merchant Plus', 'Corporate Contract'];
 export const VEHICLE_TYPES = ['Motorcycle', 'Bicycle', 'Car', 'Van', 'Truck'];
 export const SHIFTS = ['Morning', 'Evening', 'Night', 'General'];
@@ -87,25 +87,29 @@ const mapDoc = (d) => ({ ...d, uploaded_at: d.created_at });
 export async function getCustomer(id) {
   const c = await getRow(T.customers, id);
   if (!c) return null;
-  const [branch, login, pickups, contacts, documents] = await Promise.all([
+  const [branch, login, pickups, contacts, documents, bankAccounts] = await Promise.all([
     getRow(T.branches, c.branch_id),
     getRow(T.profiles, c.profile_id),
     listAll(T.pickups, [Query.equal('customer_id', id), Query.orderAsc('sort_order')]),
     listAll(T.contacts, [Query.equal('customer_id', id), Query.orderAsc('sort_order')]),
     listAll(T.documents, [Query.equal('customer_id', id), Query.orderDesc('$createdAt')]),
+    listAll(T.bankAccounts, [Query.equal('customer_id', id), Query.orderAsc('sort_order')]).catch(() => []),
   ]);
   return {
     ...c,
     branch: branch ? { name: branch.name } : null,
     login: login ? { id: login.id, email: login.email, status: login.status } : null,
     pickups, contacts, documents: documents.map(mapDoc),
+    // Older customers have only the single bank detail on the customer row.
+    bank_accounts: bankAccounts.length ? bankAccounts
+      : c.iban ? [{ bank_name: c.bank_name, account_title: c.account_title, iban: c.iban, is_primary: true }] : [],
   };
 }
 
 /** Customers with no portal login yet (for linking a merchant user). */
 export const listCustomersWithoutLogin = () => listAll(T.customers, [Query.isNull('profile_id'), Query.orderAsc('business_name')]);
 
-/** payload: { id?, customer: {...}, pickups: [...], contacts: [...] } -> customer id */
+/** payload: { id?, customer: {...}, pickups: [...], contacts: [...], banks: [...] } -> customer id */
 export const saveCustomer = (payload) => callApi('customers.save', payload).then((r) => r.id);
 export const setCustomerStatus = (id, patch) => callApi('customers.set_status', { id, patch });
 export const deleteCustomer = (id) => callApi('customers.delete', { id });
@@ -180,10 +184,62 @@ export const saveReceiver = (customerId, r) => callApi('receivers.save', {
 // ---------------------------------------------------------------- pricing (rate card)
 /** The saved rate card, or null when none has been saved yet (the app then uses its defaults). */
 export async function getPricing() {
-  const row = await getRow(T.pricing, 'default');
+  // A list query returns nothing (instead of a 404 in the console) when no rate card is saved yet.
+  const [row] = await listAll(T.pricing, [Query.equal('$id', 'default')]);
   if (!row?.card) return null;
   try { return JSON.parse(row.card); } catch { return null; }
 }
 
 /** Super Admin only (enforced by the api function). */
 export const savePricing = (card) => callApi('pricing.save', { card });
+
+// ---------------------------------------------------------------- shipments and the COD chain
+// Rows are read straight from the tables (each row's permissions decide who sees it);
+// every change goes through the api function, which prices bookings and checks the caller.
+const SHIP_COLS = {
+  awb: 'awb', merchantId: 'merchant_id', originBranchId: 'origin_branch_id', destBranchId: 'dest_branch_id', originCity: 'origin_city',
+  destCity: 'dest_city', status: 'status', service: 'service', paymentType: 'payment_type', payTerm: 'pay_term', plan: 'plan', cod: 'cod',
+  codStatus: 'cod_status', currency: 'currency', riderId: 'rider_id', pickupRiderId: 'pickup_rider_id', createdBy: 'created_by', eta: 'eta',
+};
+export function mapShipmentRow(row) {
+  let data = {};
+  try { data = JSON.parse(row.data || '{}'); } catch { data = {}; }
+  const sh = { ...data, id: row.id || row.$id };
+  for (const [k, col] of Object.entries(SHIP_COLS)) sh[k] = row[col] ?? null;
+  sh.cod = Number(row.cod) || 0;
+  sh.events = sh.events || [];
+  sh.activity = sh.activity || [];
+  return sh;
+}
+const parseIds = (s) => { try { return JSON.parse(s || '[]'); } catch { return []; } };
+const mapTxn = (r) => ({
+  id: r.id, shipmentId: r.shipment_id, awb: r.awb, riderId: r.rider_id, merchantId: r.merchant_id, branchId: r.branch_id,
+  amount: Number(r.amount) || 0, currency: r.currency, status: r.status, collectedAt: r.collected_at, depositId: r.deposit_id, payoutId: r.payout_id,
+});
+const mapDeposit = (r) => ({
+  id: r.id, riderId: r.rider_id, branchId: r.branch_id, currency: r.currency, expected: Number(r.expected) || 0, deposited: Number(r.deposited) || 0,
+  status: r.status, txnIds: parseIds(r.txn_ids), at: r.at, note: r.note || '',
+});
+const mapPayout = (r) => ({
+  id: r.id, batch: r.batch, merchantId: r.merchant_id, txnIds: parseIds(r.txn_ids), shipments: r.shipments, gross: r.gross, shipping: r.shipping,
+  codFee: r.cod_fee, returns: r.returns, net: r.net, status: r.status, createdAt: r.created_at, paidAt: r.paid_at, reference: r.reference || '',
+});
+
+export const listShipments = () => listAll(T.shipments, [Query.orderDesc('$createdAt')]).then((rows) => rows.map(mapShipmentRow));
+export const listCodTxns = () => listAll(T.codTxns, [Query.orderDesc('$createdAt')]).then((rows) => rows.map(mapTxn));
+export const listDeposits = () => listAll(T.deposits, [Query.orderDesc('$createdAt')]).then((rows) => rows.map(mapDeposit));
+export const listPayouts = () => listAll(T.payouts, [Query.orderDesc('$createdAt')]).then((rows) => rows.map(mapPayout));
+
+// Each call returns the rows it changed, already in the app's shape.
+export const apiCreateShipment = (form) => callApi('shipments.create', { form });
+export const apiChangeStatus = (ids, status, opts) => callApi('shipments.status', { ids, status, opts });
+export const apiAssignRider = (ids, riderId) => callApi('shipments.assign', { ids, riderId });
+export const apiAddNote = (id, text) => callApi('shipments.note', { id, text });
+export const apiUpdateShipment = (id, patch) => callApi('shipments.update', { id, patch });
+export const apiRecordDeposit = (riderId, deposited, note) => callApi('cod.deposit', { riderId, deposited, note });
+export const apiReconcileDeposit = (depositId) => callApi('cod.reconcile', { depositId });
+export const apiCreatePayout = (merchantId, returns) => callApi('payouts.create', { merchantId, returns });
+export const apiSetPayoutStatus = (id, status) => callApi('payouts.set_status', { id, status });
+export const apiMarkPayoutPaid = (id, reference) => callApi('payouts.paid', { id, reference });
+/** Public tracking (no login): status, cities, ETA and history only. */
+export const trackShipment = (awb) => callApi('track', { awb }).then((r) => r?.shipment || null);

@@ -1,14 +1,14 @@
 // Customer account onboarding form (create and edit). Sections follow the paper form:
 // account and owner details, multiple pickup addresses each with its return address,
-// points of contact, bank detail (IBAN, title, bank), KYC documents and cheque (10 MB each),
+// points of contact, bank accounts (bank, title, IBAN; several allowed), KYC documents and cheque (10 MB each),
 // commercial terms, and an optional portal login for the merchant.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import clsx from 'clsx';
-import { Download, FileText, Loader2, Plus, Save, Trash2, X } from 'lucide-react';
+import { Download, FileText, History, Loader2, Plus, Save, Trash2, X } from 'lucide-react';
 import { Card, FileDropzone, PageHeader, PageSkeleton } from '../../components/ui/index.jsx';
 import { FieldError } from '../../components/forms/EntityForm.jsx';
 import { RecordNotFound } from '../../components/layout/Fallbacks.jsx';
@@ -17,13 +17,15 @@ import { confirm, toast } from '../../store/uiStore.js';
 import { CITY_NAMES, CITY_MAP } from '../../data/geo.js';
 import { formatCnic, fmtDate } from '../../utils/format.js';
 import { syncFromDb } from '../../hooks/useDbSync.js';
-import { SHIPPING_PLANS } from '../../utils/pricing.js';
+import { prepareDocuments } from '../../utils/pdfCompress.js';
+import { useFormDraft } from '../../hooks/useFormDraft.js';
+import { PAYMENT_TERMS, normalizePlans, paymentTermsFor, SHIPPING_PLANS } from '../../utils/pricing.js';
 import {
   BUSINESS_NAME_MESSAGE, IBAN_MESSAGE, NTN_MESSAGE, PASSWORD_MESSAGE, cleanNtnInput, cleanPhoneInput, isBusinessName, isEmail, isIban, isNtn,
   isStrongPassword, normalizeIban, phoneInputProps, zCnicOptional, zEmailOptional, zPersonName, zPersonNameOptional, zPhone, zPhoneOptional,
 } from '../../utils/validation.js';
 import {
-  CUSTOMER_TYPES, DOC_TYPES, RATE_CARDS, createUser, deleteCustomerDoc, docDownloadUrl, getCustomer, listBanks, listBranches,
+  DOC_TYPES, RATE_CARDS, createUser, deleteCustomerDoc, docDownloadUrl, getCustomer, listBanks, listBranches,
   saveCustomer, uploadCustomerDoc, validateDoc,
 } from '../../lib/api.js';
 
@@ -62,10 +64,22 @@ const contactSchema = z.object({ name: z.string(), designation: z.string(), phon
   if (!res.success) res.error.issues.forEach((i) => ctx.addIssue(i));
 });
 
+const MAX_BANKS = 5;
+const blankBank = (b) => !b || ['bank_name', 'account_title', 'iban'].every((k) => !String(b[k] ?? '').trim());
+const bankSchema = z.object({ bank_name: z.string(), account_title: z.string(), iban: z.string() }).superRefine((b, ctx) => {
+  if (blankBank(b)) return;
+  const iban = normalizeIban(b.iban);
+  if (!b.bank_name) ctx.addIssue({ code: 'custom', path: ['bank_name'], message: 'Choose the bank' });
+  if (!b.account_title.trim()) ctx.addIssue({ code: 'custom', path: ['account_title'], message: 'Account title is required' });
+  else if (!isBusinessName(b.account_title)) ctx.addIssue({ code: 'custom', path: ['account_title'], message: 'Use letters and numbers only (2-100 characters)' });
+  if (!iban) ctx.addIssue({ code: 'custom', path: ['iban'], message: 'IBAN is required' });
+  else if (!isIban(iban)) ctx.addIssue({ code: 'custom', path: ['iban'], message: IBAN_MESSAGE });
+});
+
 const schema = z.object({
   business_name: req('Business name', 120).refine(isBusinessName, BUSINESS_NAME_MESSAGE),
-  customer_type: req('Customer type'),
   shipping_plans: z.array(z.string()).min(1, 'Choose at least one shipping plan'),
+  payment_types: z.array(z.string()).min(1, 'Choose at least one payment type'),
   owner_name: zPersonName('Owner name'),
   cnic: zCnicOptional(),
   ntn: z.string().trim().refine((v) => !v || isNtn(v), NTN_MESSAGE),
@@ -74,9 +88,7 @@ const schema = z.object({
   office_address: opt('Office address', 250),
   city: z.string().trim(),
   branch_id: req('Branch'),
-  bank_name: z.string().trim(),
-  account_title: opt('Account title', 100).refine((v) => !v || isBusinessName(v), 'Use letters and numbers only'),
-  iban: z.string().transform(normalizeIban).refine((v) => !v || isIban(v), IBAN_MESSAGE),
+  banks: z.array(bankSchema).max(MAX_BANKS, `At most ${MAX_BANKS} bank accounts`),
   rate_card: z.string(),
   discount_pct: z.coerce.number({ invalid_type_error: 'Enter a number' }).min(0, 'Min 0').max(100, 'Max 100'),
   credit_limit: z.coerce.number({ invalid_type_error: 'Enter a number' }).min(0, 'Cannot be negative').max(100000000, 'Too large'),
@@ -88,13 +100,14 @@ const schema = z.object({
   create_login: z.boolean(),
   login_password: z.string(),
 }).superRefine((v, ctx) => {
-  // Bank detail is all-or-nothing: a payout needs all three.
-  const bank = [v.bank_name, v.account_title, v.iban];
-  if (bank.some(Boolean) && !bank.every(Boolean)) {
-    if (!v.bank_name) ctx.addIssue({ code: 'custom', path: ['bank_name'], message: 'Choose the bank' });
-    if (!v.account_title) ctx.addIssue({ code: 'custom', path: ['account_title'], message: 'Account title is required' });
-    if (!v.iban) ctx.addIssue({ code: 'custom', path: ['iban'], message: 'IBAN is required' });
-  }
+  // The same IBAN cannot be added twice.
+  const seen = {};
+  v.banks.forEach((b, i) => {
+    const iban = normalizeIban(b.iban);
+    if (!iban || blankBank(b)) return;
+    if (seen[iban] !== undefined) ctx.addIssue({ code: 'custom', path: ['banks', i, 'iban'], message: `Same IBAN as bank account ${seen[iban] + 1}` });
+    else seen[iban] = i;
+  });
   if (v.create_login) {
     // The customer's email is the login email, so a login needs one.
     if (!isEmail(v.email)) ctx.addIssue({ code: 'custom', path: ['email'], message: 'Email is required to create a portal login' });
@@ -106,17 +119,21 @@ const blankPickup = (city = '') => ({ label: '', address: '', city, contact_name
 const blankContact = () => ({ name: '', designation: '', phone: '', email: '' });
 
 const EMPTY = {
-  business_name: '', customer_type: '', shipping_plans: [], owner_name: '', cnic: '', ntn: '', phone: '', email: '', office_address: '', city: '', branch_id: '',
-  bank_name: '', account_title: '', iban: '', rate_card: 'Standard', discount_pct: 0, credit_limit: 0, status: 'Active', kyc_status: 'Pending', notes: '',
+  business_name: '', shipping_plans: [], payment_types: [], owner_name: '', cnic: '', ntn: '', phone: '', email: '', office_address: '', city: '', branch_id: '',
+  banks: [{ bank_name: '', account_title: '', iban: '' }], rate_card: 'Standard', discount_pct: 0, credit_limit: 0, status: 'Active', kyc_status: 'Pending', notes: '',
   pickups: [blankPickup()], contacts: [blankContact()], create_login: false, login_password: '',
 };
 
 const s = (v) => v ?? '';
 const fromDb = (c) => ({
   ...EMPTY,
-  business_name: c.business_name, customer_type: c.customer_type, shipping_plans: c.shipping_plans || [], owner_name: c.owner_name, cnic: s(c.cnic), ntn: s(c.ntn), phone: c.phone,
-  email: s(c.email), office_address: s(c.office_address), city: s(c.city), branch_id: s(c.branch_id), bank_name: s(c.bank_name),
-  account_title: s(c.account_title), iban: s(c.iban), rate_card: c.rate_card, discount_pct: Number(c.discount_pct), credit_limit: Number(c.credit_limit),
+  business_name: c.business_name, shipping_plans: normalizePlans(c.shipping_plans), payment_types: paymentTermsFor(c), owner_name: c.owner_name, cnic: s(c.cnic), ntn: s(c.ntn), phone: c.phone,
+  email: s(c.email), office_address: s(c.office_address), city: s(c.city), branch_id: s(c.branch_id),
+  // Saved accounts; older customers only have the single bank detail on the customer row.
+  banks: c.bank_accounts?.length
+    ? c.bank_accounts.map((b) => ({ bank_name: s(b.bank_name), account_title: s(b.account_title), iban: s(b.iban) }))
+    : [{ bank_name: s(c.bank_name), account_title: s(c.account_title), iban: s(c.iban) }],
+  rate_card: c.rate_card, discount_pct: Number(c.discount_pct), credit_limit: Number(c.credit_limit),
   status: c.status, kyc_status: c.kyc_status, notes: s(c.notes),
   pickups: c.pickups?.length ? c.pickups.map((p) => ({
     id: p.id, label: s(p.label), address: p.address, city: p.city, contact_name: s(p.contact_name), phone: s(p.phone),
@@ -165,14 +182,20 @@ export function CustomerForm() {
   const [record, setRecord] = useState(null);
   const [branches, setBranches] = useState([]);
   const [banks, setBanks] = useState([]);
-  const [docType, setDocType] = useState('CNIC Front');
+  const [docType, setDocType] = useState('Company Docs');
   const [pending, setPending] = useState([]); // files chosen but not uploaded yet
+  // Unsaved work survives a refresh: values in localStorage, picked files in IndexedDB.
+  // The login password is never stored in the browser.
+  const draft = useFormDraft(`customer:${id || 'new'}`, { exclude: ['login_password'] });
+  const [restoredAt, setRestoredAt] = useState(null);
+  const skipCityEffect = useRef(false);
   const [existingDocs, setExistingDocs] = useState([]);
   const [saving, setSaving] = useState(false);
 
   const { register, control, handleSubmit, watch, reset, setValue, formState: { errors } } = useForm({ resolver: zodResolver(schema), defaultValues: EMPTY, mode: 'onTouched' });
   const pickups = useFieldArray({ control, name: 'pickups' });
   const contacts = useFieldArray({ control, name: 'contacts' });
+  const bankRows = useFieldArray({ control, name: 'banks' });
 
   useEffect(() => {
     let live = true;
@@ -182,13 +205,24 @@ export function CustomerForm() {
         if (!live) return;
         setBranches(b);
         setBanks(bk);
+        let base = me.role === 'branch_manager' ? { ...EMPTY, branch_id: me.branchId } : EMPTY;
         if (isEdit) {
           if (!c) { setMissing(true); return; }
           setRecord(c);
           setExistingDocs(c.documents || []);
-          reset(fromDb(c));
-        } else if (me.role === 'branch_manager') {
-          reset({ ...EMPTY, branch_id: me.branchId });
+          base = fromDb(c);
+        }
+        draft.setBase(base);
+        const saved = draft.load();
+        const files = await draft.loadFiles();
+        if (!live) return;
+        if (saved || files.length) {
+          skipCityEffect.current = true; // keep the restored branch, do not re-derive it from the city
+          reset({ ...base, ...(saved?.values || {}), login_password: '' });
+          setPending(files);
+          setRestoredAt(saved?.savedAt || new Date().toISOString());
+        } else {
+          reset(base);
         }
       } catch (e) {
         toast.error(e.message);
@@ -197,11 +231,29 @@ export function CustomerForm() {
       }
     })();
     return () => { live = false; };
-  }, [id, isEdit, reset, me.role, me.branchId]);
+  }, [id, isEdit, reset, me.role, me.branchId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Save as the user types (debounced). Waits until the form has loaded so the empty form is not saved.
+  useEffect(() => {
+    if (loading) return undefined;
+    const sub = watch((values) => draft.save(values));
+    return () => sub.unsubscribe();
+  }, [loading, watch, draft.save]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!loading) draft.saveFiles(pending); }, [pending, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const discardDraft = async () => {
+    if (!(await confirm({ title: 'Discard draft?', message: 'The details you entered earlier will be cleared.', confirmLabel: 'Discard' }))) return;
+    draft.clear();
+    setPending([]);
+    setRestoredAt(null);
+    reset(isEdit && record ? fromDb(record) : me.role === 'branch_manager' ? { ...EMPTY, branch_id: me.branchId } : EMPTY);
+    toast.info('Draft discarded');
+  };
 
   // Picking the office city suggests its branch and pre-fills the first pickup city.
   const city = watch('city');
   useEffect(() => {
+    if (skipCityEffect.current) { skipCityEffect.current = false; return; }
     if (!city || isEdit) return;
     const branch = CITY_MAP[city]?.branchId;
     if (branch && me.role !== 'branch_manager') setValue('branch_id', branch);
@@ -212,10 +264,25 @@ export function CustomerForm() {
   const branchOptions = branches.filter((b) => isAdmin || b.id === me.branchId).map((b) => ({ value: b.id, label: `${b.name} (${b.id})` }));
   const createLogin = watch('create_login');
 
-  const addFiles = (files) => {
-    const ok = [];
-    files.forEach((f) => { const problem = validateDoc(f); if (problem) toast.error(problem); else ok.push({ key: crypto.randomUUID(), docType, file: f }); });
-    setPending((p) => [...p, ...ok]);
+  const [preparing, setPreparing] = useState(''); // progress text while files are compressed
+  const addFiles = async (files) => {
+    setPreparing('Preparing files...');
+    try {
+      const ready = await prepareDocuments(files, docType, setPreparing);
+      const ok = [];
+      ready.forEach(({ file, note }) => {
+        const problem = validateDoc(file);
+        if (problem) toast.error(`${problem}. Even after compression it is too big; split it into smaller files.`);
+        else ok.push({ key: crypto.randomUUID(), docType, file, note });
+      });
+      setPending((p) => [...p, ...ok]);
+      const compressed = ok.filter((x) => x.note);
+      if (compressed.length) toast.success(compressed.map((x) => x.note).join('; '));
+    } catch (e) {
+      toast.error(e.message || 'Could not read the file');
+    } finally {
+      setPreparing('');
+    }
   };
 
   const download = async (doc) => {
@@ -230,12 +297,13 @@ export function CustomerForm() {
   const onSubmit = async (v) => {
     setSaving(true);
     try {
-      const { pickups: pk, contacts: ct, create_login: wantLogin, login_password: loginPassword, ...customer } = v;
+      const { pickups: pk, contacts: ct, banks: bk, create_login: wantLogin, login_password: loginPassword, ...customer } = v;
       const customerId = await saveCustomer({
         id: id || null,
         customer,
         pickups: pk.map((p) => (p.return_same_as_pickup ? { ...p, return_address: '', return_city: '', return_phone: '' } : p)),
         contacts: ct.filter((c) => !blankRow(c)),
+        banks: bk.filter((b) => !blankBank(b)).map((b) => ({ ...b, iban: normalizeIban(b.iban) })),
       });
 
       const failed = [];
@@ -253,6 +321,8 @@ export function CustomerForm() {
         }
       }
 
+      draft.clear(); // saved in the backend: the local copy is no longer needed
+      setRestoredAt(null);
       toast.success(isEdit ? 'Customer account updated' : 'Customer account created');
       if (returnTo) {
         // The booking form needs the new customer in its list before it can select it.
@@ -288,13 +358,18 @@ export function CustomerForm() {
           </>
         )}
       />
+      {restoredAt && (
+        <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary-hover bg-primary-light px-3 py-2 text-sm">
+          <span className="flex items-center gap-2"><History size={16} aria-hidden /> Unsaved details from {new Date(restoredAt).toLocaleString()} were restored{pending.length ? ` (with ${pending.length} document${pending.length > 1 ? 's' : ''})` : ''}. {watch('create_login') ? 'Re-enter the login password.' : ''}</span>
+          <button type="button" className="btn-outline btn-sm" onClick={discardDraft}>Discard draft</button>
+        </div>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="space-y-4 xl:col-span-2">
           <Card title="1. Customer account">
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Business name" name="business_name" required register={register} error={errors.business_name} placeholder="e.g. Zaryab Fashion House" maxLength={120} />
-              <Field label="Customer type" name="customer_type" required register={register} error={errors.customer_type}>{Select({ options: CUSTOMER_TYPES })}</Field>
               <Field label="Owner name" name="owner_name" required register={register} error={errors.owner_name} maxLength={80} placeholder="Owner's full name, e.g. Ehtisham Malik" />
               <Field label="CNIC" name="cnic" register={register} error={errors.cnic} placeholder="35202-1234567-1" inputMode="numeric" maxLength={15} format={formatCnic} />
               <Field label="NTN" name="ntn" register={register} error={errors.ntn} placeholder="1234567-8" inputMode="numeric" maxLength={15} format={cleanNtnInput} />
@@ -322,6 +397,24 @@ export function CustomerForm() {
                   })}
                 </div>
                 <FieldError message={errors.shipping_plans?.message} />
+              </fieldset>
+              <fieldset className="sm:col-span-2">
+                <legend className="label">Payment type<span className="text-danger"> *</span> <span className="font-normal text-ink-muted">(choose one or more; bookings offer only these)</span></legend>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  {PAYMENT_TERMS.map((t) => {
+                    const on = (watch('payment_types') || []).includes(t.value);
+                    return (
+                      <label key={t.value} className={clsx('flex cursor-pointer gap-2 rounded-lg border p-3 text-sm', on ? 'border-primary-hover bg-primary-light' : 'border-line hover:bg-surface', errors.payment_types && !on && 'border-danger')}>
+                        <input type="checkbox" value={t.value} className="mt-0.5 h-4 w-4 shrink-0 accent-primary-hover" {...register('payment_types')} />
+                        <span><span className="block font-semibold">{t.label}</span><span className="text-xs text-ink-muted">{t.hint}</span></span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <FieldError message={errors.payment_types?.message} />
+                {(watch('payment_types') || []).includes('credit') && !(Number(watch('credit_limit')) > 0) && (
+                  <p className="mt-1 text-xs text-danger">Credit needs a credit limit above 0 under Account terms, or credit bookings will be refused.</p>
+                )}
               </fieldset>
             </div>
           </Card>
@@ -384,13 +477,53 @@ export function CustomerForm() {
             </div>
           </Card>
 
-          <Card title="4. Bank detail">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Field label="Bank name" name="bank_name" register={register} error={errors.bank_name}>{Select({ options: bankOptions, placeholder: 'Select bank...' })}</Field>
-              <Field label="Account title" name="account_title" register={register} error={errors.account_title} placeholder="Name on the bank account" maxLength={100} />
-              <Field label="IBAN #" name="iban" register={register} error={errors.iban} placeholder="PK36SCBL0000001123456702" className="font-mono" maxLength={34} format={(x) => x.toUpperCase().replace(/[^A-Z0-9 ]/g, '')} />
+          <Card
+            title="4. Bank accounts"
+            actions={bankRows.fields.length < MAX_BANKS && (
+              <button type="button" className="btn-outline btn-sm" onClick={() => bankRows.append({ bank_name: '', account_title: '', iban: '' })}><Plus size={14} aria-hidden /> Add bank account</button>
+            )}
+          >
+            {!bankRows.fields.length && <p className="text-sm text-ink-muted">No bank account added. Add one to receive COD payouts.</p>}
+            <div className="space-y-3">
+              {bankRows.fields.map((f, i) => {
+                const iban = normalizeIban(watch(`banks.${i}.iban`) || '');
+                const need = { PK: 24, AE: 23 }[iban.slice(0, 2)];
+                return (
+                  <fieldset key={f.id} className="rounded-xl border border-line p-3">
+                    <legend className="flex items-center gap-2 px-1 text-xs font-semibold text-ink-muted">
+                      Bank account {i + 1}{i === 0 && <span className="rounded-full bg-primary-light px-2 py-0.5 text-[10px] text-primary-dark">Primary: COD payouts</span>}
+                    </legend>
+                    <div className="grid items-start gap-3 sm:grid-cols-[1fr_1fr_1.3fr_auto]">
+                      <Field label="Bank name" name={`banks.${i}.bank_name`} required register={register} error={err(`banks.${i}.bank_name`)}>{Select({ options: bankOptions, placeholder: 'Select bank...' })}</Field>
+                      <Field label="Account title" name={`banks.${i}.account_title`} required register={register} error={err(`banks.${i}.account_title`)} placeholder="Name on the bank account" maxLength={100} />
+                      <div>
+                        <Field
+                          label="IBAN #"
+                          name={`banks.${i}.iban`}
+                          required
+                          register={register}
+                          error={err(`banks.${i}.iban`)}
+                          placeholder="PK36SCBL0000001123456702"
+                          className="[&_input]:font-mono [&_input]:uppercase"
+                          maxLength={34}
+                          autoCapitalize="characters"
+                          spellCheck={false}
+                          format={(x) => x.toUpperCase().replace(/[^A-Z0-9]/g, '')}
+                        />
+                        {iban && !err(`banks.${i}.iban`) && (
+                          <p className={clsx('mt-1 text-xs', need && iban.length !== need ? 'text-danger' : 'text-ink-muted')}>
+                            {iban.length}{need ? ` / ${need}` : ''} characters{need ? ` (${iban.slice(0, 2)} IBAN)` : ''}
+                          </p>
+                        )}
+                      </div>
+                      <button type="button" className="btn-ghost btn-sm mt-5 !p-2 text-danger" aria-label={`Remove bank account ${i + 1}`} onClick={() => bankRows.remove(i)}><X size={16} /></button>
+                    </div>
+                  </fieldset>
+                );
+              })}
             </div>
-            <p className="mt-2 text-xs text-ink-muted">COD payouts are sent to this account. Leave all three empty if not known yet.</p>
+            <FieldError message={errors.banks?.message || errors.banks?.root?.message} />
+            <p className="mt-2 text-xs text-ink-muted">Up to {MAX_BANKS} accounts. The first one receives COD payouts; remove it and the next one becomes primary. A blank account is ignored.</p>
           </Card>
 
           <Card title="5. Documents (CNIC, cheque, NTN...)">
@@ -399,7 +532,23 @@ export function CustomerForm() {
                 <label htmlFor="doc-type" className="label">Document type</label>
                 <select id="doc-type" className="input" value={docType} onChange={(e) => setDocType(e.target.value)}>{DOC_TYPES.map((d) => <option key={d}>{d}</option>)}</select>
               </div>
-              <FileDropzone compact multiple onFiles={addFiles} accept=".pdf,.jpg,.jpeg,.png,.webp" hint="Drop files or click to upload (max 10 MB each)" />
+              {preparing ? (
+                <div role="status" className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-primary-hover bg-primary-light p-4 text-center text-sm">
+                  <Loader2 size={20} className="mb-2 animate-spin text-ink-muted" aria-hidden />
+                  <p className="font-medium">{preparing}</p>
+                  <p className="text-xs text-ink-muted">Large PDFs are compressed automatically. Please wait.</p>
+                </div>
+              ) : (
+                <FileDropzone
+                  compact
+                  multiple
+                  onFiles={addFiles}
+                  accept=".pdf,.jpg,.jpeg,.png,.webp"
+                  hint={docType === 'Company Docs'
+                    ? 'Drop all company documents together (CNIC, NTN, cheque...): they become one PDF'
+                    : 'Drop files or click to upload. PDFs over 3 MB are compressed automatically'}
+                />
+              )}
             </div>
             {(existingDocs.length > 0 || pending.length > 0) && (
               <ul className="divide-y divide-line rounded-xl border border-line">
@@ -414,7 +563,7 @@ export function CustomerForm() {
                 {pending.map((p) => (
                   <li key={p.key} className="flex items-center gap-3 bg-primary-light/40 px-3 py-2 text-sm">
                     <FileText size={16} className="shrink-0 text-ink-muted" aria-hidden />
-                    <span className="min-w-0 flex-1"><span className="block truncate font-medium">{p.file.name}</span><span className="text-xs text-ink-muted">{p.docType} · {fmtSize(p.file.size)} · uploads on save</span></span>
+                    <span className="min-w-0 flex-1"><span className="block truncate font-medium">{p.file.name}</span><span className="text-xs text-ink-muted">{p.docType} · {fmtSize(p.file.size)}{p.note ? ` · ${p.note}` : ''} · uploads on save</span></span>
                     <button type="button" className="btn-ghost btn-sm !p-2" aria-label={`Remove ${p.file.name}`} onClick={() => setPending((x) => x.filter((y) => y.key !== p.key))}><X size={15} /></button>
                   </li>
                 ))}
@@ -462,6 +611,15 @@ export function CustomerForm() {
             <Card title="Portal login"><p className="text-sm">{record.login.email}</p><p className="text-xs text-ink-muted">{record.login.status}</p></Card>
           )}
         </div>
+      </div>
+
+      {/* Same actions at the bottom, so a long form can be saved without scrolling back up. */}
+      <div className="sticky bottom-0 z-10 -mx-3 mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-line bg-white/95 px-3 py-3 backdrop-blur sm:-mx-5 sm:px-5">
+        <p className="me-auto hidden text-xs text-ink-muted sm:block">Required fields are marked <span className="text-danger">*</span></p>
+        <button type="button" className="btn-outline" onClick={() => navigate(-1)}>Cancel</button>
+        <button type="submit" className="btn-primary" disabled={saving}>
+          {saving ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Save size={16} aria-hidden />} {isEdit ? 'Save changes' : 'Create account'}
+        </button>
       </div>
     </form>
   );

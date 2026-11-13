@@ -5,9 +5,10 @@ import {
 } from './context.js';
 import { MSG, assert, checkCnic, checkEmail, checkPhone, isBusinessName, isIban, isNtn, isPersonName, last10, normalizeIban, num, nz } from './validate.js';
 
-const CUSTOMER_TYPES = ['E-commerce Merchant', 'Corporate', 'SME / Retail', 'Individual', 'Marketplace Seller'];
-const PLANS = ['cod', 'shipment', 'corporate', 'cargo'];
-const DOC_TYPES = ['CNIC Front', 'CNIC Back', 'Cheque', 'NTN Certificate', 'Business Registration', 'Agreement', 'Other'];
+const PLANS = ['cod', 'ftl', 'corporate', 'cargo'];
+const MAX_BANK_ACCOUNTS = 5;
+const PAYMENT_TYPES = ['cod', 'topay', 'credit', 'debit'];
+const DOC_TYPES = ['Company Docs', 'Agreement', 'Other']; // older rows may still carry earlier types
 const DOC_MIME = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 const MAX_DOC_BYTES = 10 * 1024 * 1024;
 
@@ -19,15 +20,16 @@ async function loadCustomer(db, id) {
 
 function customerData(c) {
   const data = {
-    business_name: nz(c.business_name), customer_type: nz(c.customer_type), owner_name: nz(c.owner_name), cnic: nz(c.cnic), ntn: nz(c.ntn),
+    business_name: nz(c.business_name), owner_name: nz(c.owner_name), cnic: nz(c.cnic), ntn: nz(c.ntn),
     phone: nz(c.phone), email: nz(c.email)?.toLowerCase() || null, office_address: nz(c.office_address), city: nz(c.city), branch_id: nz(c.branch_id),
     bank_name: nz(c.bank_name), account_title: nz(c.account_title), iban: nz(normalizeIban(c.iban || '')),
     rate_card: nz(c.rate_card) || 'Standard', discount_pct: num(c.discount_pct), credit_limit: num(c.credit_limit),
     status: nz(c.status) || 'Active', kyc_status: nz(c.kyc_status) || 'Pending', notes: nz(c.notes),
-    shipping_plans: Array.isArray(c.shipping_plans) ? c.shipping_plans.map(String) : [],
+    // 'shipment' was renamed to Full Truck Load ('ftl').
+    payment_types: Array.isArray(c.payment_types) ? [...new Set(c.payment_types.map(String))] : [],
+    shipping_plans: Array.isArray(c.shipping_plans) ? [...new Set(c.shipping_plans.map(String).map((x) => (x === 'shipment' ? 'ftl' : x)))] : [],
   };
   assert(data.business_name && isBusinessName(data.business_name), 'Business name: use letters, numbers and & . , - ( ) only (2-120 characters)');
-  assert(CUSTOMER_TYPES.includes(data.customer_type), 'Choose a valid customer type');
   assert(data.owner_name && isPersonName(data.owner_name), 'Owner name: use letters only (2-80 characters)');
   assert(data.phone, 'Phone is required');
   checkPhone(data.phone);
@@ -36,6 +38,8 @@ function customerData(c) {
   assert(data.ntn === null || isNtn(data.ntn), MSG.ntn);
   assert(data.iban === null || isIban(data.iban), MSG.iban);
   assert(data.shipping_plans.every((p) => PLANS.includes(p)), MSG.plans);
+  assert(data.payment_types.length >= 1, 'Choose at least one payment type');
+  assert(data.payment_types.every((p) => PAYMENT_TYPES.includes(p)), 'Choose a valid payment type');
   assert(data.discount_pct >= 0 && data.discount_pct <= 100, 'Discount must be between 0 and 100');
   assert(data.credit_limit >= 0, 'Credit limit cannot be negative');
   assert(['Active', 'Inactive', 'Suspended'].includes(data.status), 'Choose a valid status');
@@ -65,6 +69,17 @@ function contactData(p, i, customerId) {
   return row;
 }
 
+function bankData(b, i, customerId) {
+  const row = {
+    customer_id: customerId, bank_name: nz(b.bank_name), account_title: nz(b.account_title), iban: nz(normalizeIban(b.iban || '')),
+    is_primary: i === 0, sort_order: i,
+  };
+  assert(row.bank_name && row.account_title && row.iban, 'Each bank account needs the bank, account title and IBAN');
+  assert(isBusinessName(row.account_title), 'Account title: use letters and numbers only');
+  assert(isIban(row.iban), MSG.iban);
+  return row;
+}
+
 async function replaceChildren(db, table, customerId, rows, perms) {
   for (const old of await listAll(db, table, [Query.equal('customer_id', customerId)])) await deleteRow(db, table, old.$id);
   for (const row of rows) await createRow(db, table, row, perms);
@@ -80,6 +95,18 @@ export async function saveCustomer(ctx, me, payload) {
   if (!allowed) throw new ApiError('You do not have permission to make this change.', 403);
   if (data.branch_id) assert(await getRowOrNull(db, T.branches, data.branch_id), 'Branch not found');
   if (data.bank_name) assert(await listAll(db, T.banks, [Query.equal('name', data.bank_name), Query.limit(1)]).then((r) => r.length), 'Choose a bank from the list');
+
+  // Bank accounts: the first is the primary (COD payouts) and is copied onto the customer row.
+  const banks = Array.isArray(payload.banks) ? payload.banks.map((b, i) => bankData(b, i, 'pending')) : null;
+  if (banks) {
+    assert(banks.length <= MAX_BANK_ACCOUNTS, `At most ${MAX_BANK_ACCOUNTS} bank accounts`);
+    assert(new Set(banks.map((b) => b.iban)).size === banks.length, 'The same IBAN is entered twice');
+    const known = new Set((await listAll(db, T.banks, [])).map((b) => b.name));
+    for (const b of banks) assert(known.has(b.bank_name), `Choose a bank from the list (${b.bank_name})`);
+    data.bank_name = banks[0]?.bank_name || null;
+    data.account_title = banks[0]?.account_title || null;
+    data.iban = banks[0]?.iban || null;
+  }
 
   const pickups = Array.isArray(payload.pickups) ? payload.pickups : null;
   const contacts = Array.isArray(payload.contacts) ? payload.contacts : null;
@@ -97,6 +124,8 @@ export async function saveCustomer(ctx, me, payload) {
   if (pickups) await replaceChildren(db, T.pickups, customer.$id, pickups.map((p, i) => pickupData(p, i, customer.$id)), perms);
   else if (branchChanged) for (const r of await listAll(db, T.pickups, [Query.equal('customer_id', customer.$id)])) await updateRow(db, T.pickups, r.$id, {}, perms);
   if (contacts) await replaceChildren(db, T.contacts, customer.$id, contacts.map((p, i) => contactData(p, i, customer.$id)), perms);
+  if (banks) await replaceChildren(db, T.bankAccounts, customer.$id, banks.map((b) => ({ ...b, customer_id: customer.$id })), perms);
+  else if (branchChanged) for (const r of await listAll(db, T.bankAccounts, [Query.equal('customer_id', customer.$id)])) await updateRow(db, T.bankAccounts, r.$id, {}, perms);
   else if (branchChanged) for (const r of await listAll(db, T.contacts, [Query.equal('customer_id', customer.$id)])) await updateRow(db, T.contacts, r.$id, {}, perms);
   if (branchChanged) {
     for (const table of [T.documents, T.receivers]) {
@@ -128,7 +157,7 @@ export async function deleteCustomer(ctx, me, { id }) {
     await storage.deleteFile({ bucketId: BUCKET, fileId: doc.file_id }).catch(() => {});
     await deleteRow(db, T.documents, doc.$id);
   }
-  for (const table of [T.pickups, T.contacts, T.receivers]) {
+  for (const table of [T.pickups, T.contacts, T.bankAccounts, T.receivers]) {
     for (const r of await listAll(db, table, [Query.equal('customer_id', id)])) await deleteRow(db, table, r.$id);
   }
   await deleteRow(db, T.customers, c.$id);

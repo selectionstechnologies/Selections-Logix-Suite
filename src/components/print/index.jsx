@@ -13,7 +13,6 @@ import { elementToPDF } from '../../utils/export.js';
 import { CITY_MAP } from '../../data/geo.js';
 import { fmtCurrency, fmtDate, fmtDateTime } from '../../utils/format.js';
 import { serviceLabel } from '../../utils/pricing.js';
-import { invoiceBalance, invoicePaid } from '../../data/helpers.js';
 
 export const PAGE_SIZES = {
   a4: { label: 'A4', width: '210mm', height: '297mm', page: 'A4' },
@@ -259,39 +258,6 @@ export function ReturnSlip({ shipment: s }) {
   );
 }
 
-export function ManifestDoc({ manifest: m, shipments, branchName }) {
-  const rows = m.awbs.map((a) => shipments.find((s) => s.awb === a)).filter(Boolean);
-  return (
-    <Sheet size="a4" autoHeight className="p-8">
-      <DocHeader title="Manifest" number={m.id} date={fmtDateTime(m.createdAt)} />
-      <dl className="mb-4 grid grid-cols-4 gap-3 text-sm">
-        <div><dt className="text-xs text-gray-500">Bag</dt><dd className="font-semibold">{m.bag}</dd></div>
-        <div><dt className="text-xs text-gray-500">From</dt><dd className="font-semibold">{branchName(m.fromBranchId)}</dd></div>
-        <div><dt className="text-xs text-gray-500">To</dt><dd className="font-semibold">{branchName(m.toBranchId)}</dd></div>
-        <div><dt className="text-xs text-gray-500">Vehicle</dt><dd className="font-semibold">{m.vehicle}</dd></div>
-      </dl>
-      <table className="w-full border-collapse text-xs">
-        <thead><tr className="bg-gray-100">{['#', 'AWB', 'Receiver', 'City', 'Pcs', 'Weight', 'COD'].map((h) => <th key={h} className="border border-gray-200 p-1.5 text-start">{h}</th>)}</tr></thead>
-        <tbody>
-          {rows.map((s, i) => (
-            <tr key={s.id}>
-              <td className="border border-gray-200 p-1.5">{i + 1}</td>
-              <td className="border border-gray-200 p-1.5 font-semibold">{s.awb}</td>
-              <td className="border border-gray-200 p-1.5">{s.receiver.name}</td>
-              <td className="border border-gray-200 p-1.5">{s.destCity}</td>
-              <td className="border border-gray-200 p-1.5">{s.parcel.pieces}</td>
-              <td className="border border-gray-200 p-1.5">{s.parcel.weight} kg</td>
-              <td className="border border-gray-200 p-1.5">{s.cod > 0 ? fmtCurrency(s.cod, s.currency) : '-'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="mt-3 text-sm font-semibold">Total parcels: {rows.length}</p>
-      <div className="flex justify-between"><Signature label="Dispatched by" /><Signature label="Received by" /></div>
-    </Sheet>
-  );
-}
-
 export function RunSheetDoc({ rider, shipments }) {
   const codTotal = shipments.reduce((a, s) => a + (Number(s.cod) || 0), 0);
   return (
@@ -316,51 +282,6 @@ export function RunSheetDoc({ rider, shipments }) {
       </table>
       <p className="mt-3 text-sm font-semibold">COD to collect: {fmtCurrency(codTotal, rider.currency)}</p>
       <div className="flex justify-between"><Signature label="Rider signature" /><Signature label="Branch supervisor" /></div>
-    </Sheet>
-  );
-}
-
-export function InvoiceDoc({ invoice: inv, merchant }) {
-  const settings = useData((s) => s.settings);
-  return (
-    <Sheet size="a4" className="p-8 text-sm">
-      <DocHeader title="Tax Invoice" number={inv.number} date={`Issued ${fmtDate(inv.issueDate)}`} />
-      <div className="mb-5 grid grid-cols-2 gap-4">
-        <div>
-          <p className="text-xs font-bold uppercase text-gray-500">From</p>
-          <p className="font-semibold">{settings.company}</p>
-          <p>{settings.address}</p>
-          <p>{settings.ntn}</p>
-        </div>
-        <div>
-          <p className="text-xs font-bold uppercase text-gray-500">Bill to</p>
-          <p className="font-semibold">{merchant?.name}</p>
-          <p>{merchant?.address}</p>
-          <p>{merchant?.email}</p>
-        </div>
-      </div>
-      <p className="mb-3 text-xs text-gray-600">{inv.notes} | Due {fmtDate(inv.dueDate)}</p>
-      <table className="mb-4 w-full border-collapse">
-        <thead><tr className="bg-[#FEF9C3]">{['Description', 'Qty', 'Rate', 'Amount'].map((h, i) => <th key={h} className={clsx('border border-gray-200 p-2 text-xs', i ? 'text-end' : 'text-start')}>{h}</th>)}</tr></thead>
-        <tbody>
-          {inv.lines.map((l, i) => (
-            <tr key={i}>
-              <td className="border border-gray-200 p-2">{l.desc}</td>
-              <td className="border border-gray-200 p-2 text-end">{l.qty}</td>
-              <td className="border border-gray-200 p-2 text-end">{fmtCurrency(l.rate)}</td>
-              <td className="border border-gray-200 p-2 text-end">{fmtCurrency(l.amount)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="ms-auto w-64 space-y-1">
-        <div className="flex justify-between"><span>Subtotal</span><span>{fmtCurrency(inv.subtotal)}</span></div>
-        <div className="flex justify-between"><span>{settings.taxName} ({inv.taxPct}%)</span><span>{fmtCurrency(inv.tax)}</span></div>
-        <div className="flex justify-between border-t border-gray-300 pt-1 font-bold"><span>Total</span><span>{fmtCurrency(inv.total)}</span></div>
-        <div className="flex justify-between"><span>Paid / credited</span><span>{fmtCurrency(invoicePaid(inv))}</span></div>
-        <div className={clsx('flex justify-between font-bold', invoiceBalance(inv) > 0 && 'text-[#DC2626]')}><span>Balance due</span><span>{fmtCurrency(invoiceBalance(inv))}</span></div>
-      </div>
-      <p className="mt-10 text-xs text-gray-500">Amounts in PKR. Bank: {merchant?.bank ? 'Selections Technologies, HBL 0042-7788-2211' : '-'}. Computer-generated invoice, no signature required.</p>
     </Sheet>
   );
 }

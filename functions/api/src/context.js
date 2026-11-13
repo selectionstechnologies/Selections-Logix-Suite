@@ -16,10 +16,15 @@ export const T = {
   customers: 'customers',
   pickups: 'customer_pickup_addresses',
   contacts: 'customer_contacts',
+  bankAccounts: 'customer_bank_accounts',
   documents: 'customer_documents',
   receivers: 'receivers',
   pricing: 'pricing',
   counters: 'counters',
+  shipments: 'shipments',
+  codTxns: 'cod_transactions',
+  deposits: 'rider_deposits',
+  payouts: 'payouts',
 };
 
 export const ROLES = ['super_admin', 'branch_manager', 'accountant', 'warehouse', 'rider', 'merchant'];
@@ -105,7 +110,7 @@ export const canEditCustomer = (me, c) => isActive(me) && (me.role === 'super_ad
 
 // ---------------------------------------------------------------- row permissions
 // Rows are only ever written by this function, so clients get read permissions only.
-const read = (roles) => roles.filter(Boolean).map((r) => Permission.read(r));
+export const read = (roles) => [...new Set(roles.filter(Boolean).map((r) => Permission.read(r)))];
 
 /** A customer account and everything under it (addresses, contacts, documents, receivers, files). */
 export const customerPerms = (c) => read([

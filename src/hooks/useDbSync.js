@@ -1,11 +1,13 @@
 // Loads the database-backed lists (branches, customer accounts, riders, users) into the
 // operations store after sign-in, so every screen works from the real records.
 import { useCallback, useEffect } from 'react';
-import { getPricing, listBranches, listCustomers, listProfiles, listRiders } from '../lib/api.js';
+import {
+  getPricing, listBranches, listCodTxns, listCustomers, listDeposits, listPayouts, listProfiles, listRiders, listShipments,
+} from '../lib/api.js';
 import { useAuth } from '../store/authStore.js';
 import { useData } from '../store/dataStore.js';
 import { CITY_MAP } from '../data/geo.js';
-import { DEFAULT_RATE_CARD } from '../utils/pricing.js';
+import { DEFAULT_RATE_CARD, normalizePlans, paymentTermsFor } from '../utils/pricing.js';
 
 const mapBranch = (b) => ({
   id: b.id, code: b.code, name: b.name, type: b.type, city: b.city, address: b.address || '', phone: b.phone || '', hours: b.hours || '',
@@ -16,8 +18,8 @@ const mapCustomer = (c) => ({
   id: c.id,
   accountNo: c.account_no,
   name: c.business_name,
-  type: c.customer_type,
-  shippingPlans: c.shipping_plans || [],
+  shippingPlans: normalizePlans(c.shipping_plans),
+  paymentTypes: paymentTermsFor(c),
   contact: c.owner_name,
   email: c.email || '',
   phone: c.phone,
@@ -53,8 +55,9 @@ const mapUser = (p) => ({
 const settle = (p) => p.then((data) => ({ data })).catch((error) => ({ error }));
 
 export async function syncFromDb() {
-  const [branches, customers, riders, users, pricing] = await Promise.all([
+  const [branches, customers, riders, users, pricing, shipments, codTxns, deposits, payouts] = await Promise.all([
     settle(listBranches()), settle(listCustomers()), settle(listRiders()), settle(listProfiles()), settle(getPricing()),
+    settle(listShipments()), settle(listCodTxns()), settle(listDeposits()), settle(listPayouts()),
   ]);
   useData.setState((s) => ({
     branches: branches.data ? branches.data.map(mapBranch) : s.branches,
@@ -63,6 +66,10 @@ export async function syncFromDb() {
     users: users.data ? users.data.map(mapUser) : s.users,
     // The saved rate card wins; until the admin saves one, the built-in defaults apply.
     rateCard: pricing.data ? { ...DEFAULT_RATE_CARD, ...pricing.data } : pricing.error ? s.rateCard : DEFAULT_RATE_CARD,
+    shipments: shipments.data || s.shipments,
+    codTransactions: codTxns.data || s.codTransactions,
+    riderDeposits: deposits.data || s.riderDeposits,
+    payouts: payouts.data || s.payouts,
   }));
 }
 
@@ -70,6 +77,14 @@ export async function syncFromDb() {
 export function useDbSync() {
   const userId = useAuth((s) => s.user?.id);
   const resync = useCallback(() => syncFromDb().catch(() => { /* screens keep the local data */ }), []);
-  useEffect(() => { if (userId) resync(); }, [userId, resync]);
+  useEffect(() => {
+    if (!userId) return undefined;
+    resync();
+    // Other people book and update parcels too: refresh every 30 s and when the tab is opened again.
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') resync(); }, 30000);
+    const onFocus = () => resync();
+    window.addEventListener('focus', onFocus);
+    return () => { clearInterval(timer); window.removeEventListener('focus', onFocus); };
+  }, [userId, resync]);
   return resync;
 }

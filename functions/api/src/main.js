@@ -7,6 +7,10 @@ import { ApiError, friendly, loadCaller, sdk } from './context.js';
 import { bootstrap, deleteBranch, saveBranch, savePricing } from './admin.js';
 import { deleteCustomer, deleteDocument, documentLink, registerDocument, saveCustomer, saveReceiver, setCustomerStatus } from './customers.js';
 import { createUser, setUserPassword, touchLogin, updateUser } from './users.js';
+import {
+  addNote, assignRider, changeStatus, createPayout, createShipment, markPayoutPaid, reconcileDeposit, recordDeposit, setPayoutStatus, track,
+  updateShipment,
+} from './shipments.js';
 
 const ACTIONS = {
   'bootstrap': (ctx, me, body, userId) => bootstrap(ctx, me, userId),
@@ -24,12 +28,26 @@ const ACTIONS = {
   'documents.delete': deleteDocument,
   'documents.link': documentLink,
   'receivers.save': saveReceiver,
+  'shipments.create': createShipment,
+  'shipments.status': changeStatus,
+  'shipments.assign': assignRider,
+  'shipments.note': addNote,
+  'shipments.update': updateShipment,
+  'cod.deposit': recordDeposit,
+  'cod.reconcile': reconcileDeposit,
+  'payouts.create': createPayout,
+  'payouts.set_status': setPayoutStatus,
+  'payouts.paid': markPayoutPaid,
 };
 
 export default async ({ req, res, log, error }) => {
   if (req.method !== 'POST') return res.json({ error: 'Method not allowed' }, 405);
   let body;
   try { body = req.bodyJson || JSON.parse(req.bodyText || '{}'); } catch { return res.json({ error: 'Invalid JSON body' }, 400); }
+  // Public tracking needs no login; it returns only status, cities and history.
+  if (body.action === 'track') {
+    try { return res.json(await track(sdk(req), body)); } catch (e) { error(`track: ${e?.message || e}`); return res.json({ error: 'Tracking is not available right now' }, 500); }
+  }
   const handler = ACTIONS[body.action];
   if (!handler) return res.json({ error: `Unknown action: ${body.action}` }, 400);
 

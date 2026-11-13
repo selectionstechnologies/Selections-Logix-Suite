@@ -5,6 +5,7 @@ import { PackageSearch, Search } from 'lucide-react';
 import { Logo } from '../../components/layout/AppLayout.jsx';
 import { EmptyState, StatusBadge, Stepper, Timeline } from '../../components/ui/index.jsx';
 import { useData } from '../../store/dataStore.js';
+import { trackShipment } from '../../lib/api.js';
 import { HAPPY_PATH } from '../../utils/status.js';
 import { serviceLabel } from '../../utils/pricing.js';
 import { fmtDate } from '../../utils/format.js';
@@ -15,7 +16,19 @@ export default function Track() {
   const shipments = useData((s) => s.shipments);
   const [code, setCode] = useState(awb || '');
   useEffect(() => { setCode(awb || ''); }, [awb]);
-  const s = awb ? shipments.find((x) => x.awb === awb.trim().toUpperCase()) : null;
+  // Signed-in staff already have the parcel loaded; anyone else asks the server (public, no login).
+  const local = awb ? shipments.find((x) => x.awb === awb.trim().toUpperCase()) : null;
+  const [remote, setRemote] = useState({ awb: null, shipment: null, loading: false });
+  useEffect(() => {
+    if (!awb || local) return undefined;
+    let live = true;
+    setRemote({ awb, shipment: null, loading: true });
+    trackShipment(awb).then((sh) => { if (live) setRemote({ awb, shipment: sh, loading: false }); })
+      .catch(() => { if (live) setRemote({ awb, shipment: null, loading: false }); });
+    return () => { live = false; };
+  }, [awb, local]);
+  const s = local || (remote.awb === awb ? remote.shipment : null);
+  const loading = !local && remote.loading;
 
   const stepIdx = s ? HAPPY_PATH.indexOf(s.status) : -1;
   const lastHappy = s ? (stepIdx >= 0 ? stepIdx : [...s.events].reverse().map((e) => HAPPY_PATH.indexOf(e.status)).find((i) => i >= 0) ?? 0) : 0;
@@ -32,7 +45,8 @@ export default function Track() {
           <button type="submit" className="btn-primary"><Search size={15} aria-hidden /> Track</button>
         </form>
 
-        {awb && !s && <div className="card"><EmptyState icon={PackageSearch} title="Tracking number not found" message={`${awb.toUpperCase()}: please check the number and try again.`} /></div>}
+        {awb && loading && <div className="card p-8 text-center text-sm text-ink-muted" role="status">Looking up {awb.toUpperCase()}...</div>}
+        {awb && !s && !loading && <div className="card"><EmptyState icon={PackageSearch} title="Tracking number not found" message={`${awb.toUpperCase()}: please check the number and try again.`} /></div>}
         {!awb && <div className="card"><EmptyState icon={PackageSearch} title="Enter tracking number" message="Your tracking number starts with SLX and is printed on the label." /></div>}
 
         {s && (
