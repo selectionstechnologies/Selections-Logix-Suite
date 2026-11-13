@@ -2,7 +2,7 @@
 
 **Ship. Collect. Control.** An all-in-one logistics management frontend by Selections Technologies, covering courier, COD, cargo, warehouse, customs, returns, finance and support.
 
-Accounts, roles, branches, customer accounts, riders and staff are stored in Supabase (PostgreSQL). There is no sample data: shipments, COD, warehouse, cargo and the other operational modules start empty and are saved in the browser until they move to the database.
+Accounts, roles, branches, customer accounts, riders and staff are stored in Appwrite (Cloud, free plan). There is no sample data: shipments, COD, warehouse, cargo and the other operational modules start empty and are saved in the browser until they move to the database.
 
 ## Run it
 
@@ -17,27 +17,22 @@ npm run preview    # serve the production bundle
 
 When deploying `dist/`, configure the host to send unknown paths to `index.html`, because routing happens in the browser.
 
-## Database setup (Supabase)
+## Backend setup (Appwrite)
 
-Accounts, roles, branches, customer accounts, riders and staff are stored in Supabase. Do these steps once per Supabase project.
+Accounts, roles, branches, customer accounts, riders and staff are stored in Appwrite. Everything the backend needs is described in `appwrite.config.json` (database, tables, branch teams, bucket, function) and pushed with the Appwrite CLI. Do these steps once per Appwrite project.
 
-1. **Environment.** Copy `.env.example` to `.env` and fill in the project URL and the publishable (anon) key from Supabase > Project Settings > API.
-2. **Schema.** Open Supabase > SQL Editor and run each file in `supabase/migrations/` in name order (`20261111000001_core_accounts.sql`, `20261111000002_shipping_plans.sql`, `20261111000003_field_validation.sql`, `20261111000004_receivers.sql`, `20261111000005_pricing.sql`). It creates the tables, row-level security, the private `customer-docs` storage bucket (10 MB per file), the bank list and the six branches. Running it again is safe.
-3. **Edge Function.** Logins can only be created with the service-role key, so that happens in a server function, never in the browser:
+1. **Project.** In the [Appwrite console](https://cloud.appwrite.io) create a project (the free plan is enough) and note its **Project ID** and **API endpoint** (for example `https://sgp.cloud.appwrite.io/v1`). Put both in `appwrite.config.json` (`projectId`, `endpoint`, and the `APPWRITE_ENDPOINT` variable under `functions`) and in `.env` (copy `.env.example`).
+2. **Web platform.** Console > project > Overview > *Add platform* > Web, hostname `localhost` for development; add the deployed hostname later. Without it the browser gets CORS errors.
+3. **Sign in the CLI and push.**
    ```bash
-   npx supabase login
-   npx supabase link --project-ref YOUR-PROJECT-REF
-   npx supabase functions deploy admin-users --no-verify-jwt
+   npm run appwrite:login   # opens the browser once
+   npm run appwrite:push    # database, tables, branch teams, customer-docs bucket and the api function
    ```
-   Or in the dashboard: Edge Functions > Deploy a new function > Via Editor, name it **admin-users**, and paste `supabase/functions/admin-users/index.ts`.
-   Then open the function's **Settings** and turn **Verify JWT with legacy secret** OFF: the function checks the caller itself, and projects on the new API keys sign tokens that the legacy check rejects. With the CLI, deploy with `--no-verify-jwt` for the same effect.
-   If the function has a different name, set `VITE_ADMIN_USERS_FUNCTION=<name>` in `.env`.
-4. **First Super Admin.** In Supabase > Authentication > Users > Add user, create your own account and tick **Auto Confirm User**. Then run this in the SQL Editor:
-   ```sql
-   insert into public.profiles (id, full_name, email, role)
-   select id, 'Your Name', email, 'super_admin' from auth.users where email = 'you@example.com';
-   ```
-5. Sign in. Every other user is created by the Super Admin under **Administration > Users & Roles**.
+   `appwrite push all` is safe to run again after `appwrite.config.json` changes. To redeploy only the function after editing `functions/api`: `npm run appwrite:push:function`.
+4. **First Super Admin.** Console > Auth > *Create user* with an email and password (name optional), then sign in to the app with it. The first login on an empty project becomes the Super Admin automatically; the bank list, the six branches and the code counters are written at the same time.
+5. Every other user is created by the Super Admin under **Administration > Users & Roles**.
+
+**How access control works.** The browser only reads. Every write in `src/lib/api.js` calls the `api` function (`functions/api`), which checks the caller's profile and makes the change with the server key, under the same rules row-level security enforced before: Super Admin everything, Branch Manager their own branch, Accountant read-only on accounts, Merchant their own account. Reads are limited by row permissions: each row lists who may see it (the `superadmin` / `accountant` user labels, the branch team's `manager` role, or the merchant's own user id), and Appwrite only returns rows the signed-in user is on. Documents live in the private `customer-docs` bucket (10 MB per file) with the same per-file permissions; viewing or downloading uses a 2-minute file token issued by the function.
 
 ## Roles
 
@@ -52,7 +47,7 @@ Accounts, roles, branches, customer accounts, riders and staff are stored in Sup
 
 **Customer account form:** business name, customer type, shipping plan (COD, Shipment, Corporate and/or Cargo; Create Shipment applies it so payment settings are not chosen per parcel), owner name, CNIC, NTN, phone, email, office address, city, branch; multiple pickup addresses, each with its return address or "same as pickup"; points of contact (name, designation, phone, email); bank detail (bank from a drop-down list, account title, IBAN); documents such as CNIC front/back and cheque copy (PDF, JPG, PNG or WEBP, up to 10 MB each), which can be viewed and downloaded later.
 
-Branch Managers can add customer accounts for their own branch. Access is enforced in the database by row-level security, not only in the screens.
+Branch Managers can add customer accounts for their own branch. Access is enforced by the `api` function and row permissions, not only in the screens.
 
 ## Try this flow
 
@@ -67,7 +62,7 @@ Create one user per role in Users & Roles first (for the merchant, a customer ac
 
 ## Where data is stored
 
-- **Database (Supabase):** users and roles, branches, customer accounts with pickup addresses, contacts, bank details and documents, riders, staff, each customer's saved receivers (one per phone number; filled in automatically when the number is typed again), and the rate card with city / province rates (Finance > Rate Cards, editable by the Super Admin).
+- **Database (Appwrite):** users and roles, branches, customer accounts with pickup addresses, contacts, bank details and documents, riders, staff, each customer's saved receivers (one per phone number; filled in automatically when the number is typed again), and the rate card with city / province rates (Finance > Rate Cards, editable by the Super Admin).
 - **This browser only, for now:** shipments, COD, payouts, invoices, warehouse, cargo, customs, returns, tickets and the audit log. These start empty and are saved in the browser's localStorage, so they are not shared between computers or users yet. Clear them at Administration > Settings > Local data. Moving them to the database is the next step.
 - **Not live yet:** WhatsApp, SMS, email, courier APIs, payment gateways and store connections only change on-screen state.
 - **Reference values:** FX rates, HS codes and duty rates are fixed values in the code; check current figures before quoting.
@@ -77,15 +72,14 @@ All money aggregates use PKR as the base and convert for display. A label or rid
 ## Project structure
 
 ```
-supabase/
-  migrations/  database schema and row-level security
-  functions/   admin-users Edge Function (creates and manages logins)
+appwrite.config.json   database, tables, branch teams, bucket and function (pushed with the Appwrite CLI)
+functions/api/         the api function: every write, with the role checks (users, customers, documents, receivers, branches, pricing)
 src/
   components/  ui, layout, charts, tables, forms, print
   pages/       one folder per module
   data/        configuration (permissions, templates, HS codes), cities and selectors
-  lib/         Supabase client and database calls (api.js)
-  store/       Zustand: operational data, auth (Supabase), UI
+  lib/         Appwrite client (appwrite.js) and database calls (api.js)
+  store/       Zustand: operational data, auth (Appwrite), UI
   hooks/       money, translation, scoping, permissions
   utils/       pricing engine, formatters, status map, export
   routes/      one table drives routes, guards, sidebar and breadcrumbs

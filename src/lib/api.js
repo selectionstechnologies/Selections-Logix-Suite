@@ -1,6 +1,7 @@
-// Database calls, one function per operation. Pages use these instead of talking to Supabase directly,
-// so table and column names live in one place.
-import { friendlyDbError, supabase, unwrap } from './supabase.js';
+// Database calls, one function per operation. Pages use these instead of talking to Appwrite
+// directly, so table names live in one place. Reads go to the tables (row permissions decide
+// what each role sees); writes go through the `api` function (functions/api).
+import { BUCKET, ID, Query, T, callApi, friendlyError, getRow, listAll, storage } from './appwrite.js';
 
 export const MAX_DOC_BYTES = 10 * 1024 * 1024;
 export const DOC_MIME = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
@@ -10,108 +11,104 @@ export const RATE_CARDS = ['Standard', 'Merchant Plus', 'Corporate Contract'];
 export const VEHICLE_TYPES = ['Motorcycle', 'Bicycle', 'Car', 'Van', 'Truck'];
 export const SHIFTS = ['Morning', 'Evening', 'Night', 'General'];
 
+const byId = (rows) => Object.fromEntries(rows.map((r) => [r.id, r]));
+const groupBy = (rows, key) => rows.reduce((acc, r) => { (acc[r[key]] ||= []).push(r); return acc; }, {});
+const nameOf = (branches, id) => (id && branches[id] ? { name: branches[id].name } : null);
+
 // ---------------------------------------------------------------- auth / profile
 export async function fetchMyProfile(userId) {
-  const profile = unwrap(await supabase.from('profiles').select('*').eq('id', userId).maybeSingle());
+  const profile = await getRow(T.profiles, userId);
   if (!profile) return null;
   const [customer, rider] = await Promise.all([
-    profile.role === 'merchant' ? supabase.from('customers').select('id').eq('profile_id', userId).maybeSingle().then(unwrap) : null,
-    profile.role === 'rider' ? supabase.from('riders').select('id').eq('profile_id', userId).maybeSingle().then(unwrap) : null,
+    profile.role === 'merchant' ? listAll(T.customers, [Query.equal('profile_id', userId)]).then((r) => r[0]) : null,
+    profile.role === 'rider' ? listAll(T.riders, [Query.equal('profile_id', userId)]).then((r) => r[0]) : null,
   ]);
   return { ...profile, customer_id: customer?.id || null, rider_id: rider?.id || null };
 }
 
+/** Basic profile rows (for the operations store). */
+export const listProfiles = () => listAll(T.profiles, [Query.orderAsc('full_name')]);
+
 // ---------------------------------------------------------------- users (Super Admin)
 export async function listUsers() {
-  return unwrap(await supabase
-    .from('profiles')
-    .select('*, branch:branches(name), staff:staff_details(*), rider:riders(*), customer:customers!customers_profile_id_fkey(id, account_no, business_name)')
-    .order('created_at', { ascending: false }));
+  const [profiles, branches, staff, riders, customers] = await Promise.all([
+    listAll(T.profiles, [Query.orderDesc('$createdAt')]), listBranches(), listAll(T.staff), listAll(T.riders), listAll(T.customers),
+  ]);
+  const b = byId(branches);
+  const staffById = byId(staff);
+  const riderByProfile = Object.fromEntries(riders.filter((r) => r.profile_id).map((r) => [r.profile_id, r]));
+  const customerByProfile = Object.fromEntries(customers.filter((c) => c.profile_id).map((c) => [c.profile_id, c]));
+  return profiles.map((p) => ({
+    ...p,
+    branch: nameOf(b, p.branch_id),
+    staff: staffById[p.id] || null,
+    rider: riderByProfile[p.id] || null,
+    customer: customerByProfile[p.id] ? { id: customerByProfile[p.id].id, account_no: customerByProfile[p.id].account_no, business_name: customerByProfile[p.id].business_name } : null,
+  }));
 }
 
-// Name (slug) of the deployed user-management Edge Function. Override with VITE_ADMIN_USERS_FUNCTION in .env.
-const ADMIN_FUNCTION = import.meta.env.VITE_ADMIN_USERS_FUNCTION || 'admin-users';
-
-async function callAdmin(body) {
-  // The database accepts any correctly signed token, but the Auth server also needs the session
-  // behind it to still exist. Check that first; a dead session goes back to the login page.
-  const { error: sessionError } = await supabase.auth.getUser();
-  if (sessionError) {
-    await supabase.auth.signOut().catch(() => {});
-    throw new Error('Your session has expired. Please sign in again.');
-  }
-  const { data, error } = await supabase.functions.invoke(ADMIN_FUNCTION, { body });
-  if (error) {
-    // The function returns { error } with a 4xx; surface that message instead of the generic one.
-    let message = error.message;
-    try { message = (await error.context?.json())?.error || message; } catch { /* keep generic */ }
-    if (/Failed to send|FunctionsFetchError/i.test(message)) message = `The "${ADMIN_FUNCTION}" Edge Function could not be reached. Check it is deployed under that name (README > Database setup).`;
-    if (/Invalid JWT|JWT/i.test(message) && !/Super Admin/.test(message)) message = `The "${ADMIN_FUNCTION}" function refused the sign-in token. Turn OFF "Verify JWT with legacy secret" in its Supabase settings.`;
-    throw new Error(friendlyDbError(message));
-  }
-  if (data?.error) throw new Error(friendlyDbError(data.error));
-  return data;
-}
-
-export const createUser = (payload) => callAdmin({ action: 'create', ...payload });
-export const updateUser = (id, payload) => callAdmin({ action: 'update', id, ...payload });
-export const setUserPassword = (id, password) => callAdmin({ action: 'set_password', id, password });
+export const createUser = (payload) => callApi('users.create', payload);
+export const updateUser = (id, payload) => callApi('users.update', { id, ...payload });
+export const setUserPassword = (id, password) => callApi('users.set_password', { id, password });
 
 // ---------------------------------------------------------------- branches
-export async function listBranches() {
-  return unwrap(await supabase.from('branches').select('*').order('id'));
-}
-export async function saveBranch(row, isNew) {
-  const q = isNew ? supabase.from('branches').insert(row) : supabase.from('branches').update(row).eq('id', row.id);
-  return unwrap(await q.select().single());
-}
-export async function deleteBranch(id) {
-  return unwrap(await supabase.from('branches').delete().eq('id', id));
-}
+export const listBranches = () => listAll(T.branches, [Query.orderAsc('$id')]);
+export const saveBranch = (row, isNew) => callApi('branches.save', { row, isNew });
+export const deleteBranch = (id) => callApi('branches.delete', { id });
 
 // ---------------------------------------------------------------- banks
 export async function listBanks() {
-  return unwrap(await supabase.from('banks').select('name, country').eq('active', true).order('name'));
+  const rows = await listAll(T.banks, [Query.equal('active', true), Query.orderAsc('name')]);
+  return rows.map(({ name, country }) => ({ name, country }));
 }
 
 // ---------------------------------------------------------------- customers
+/** Customers with branch name, pickup addresses, document count and portal login. */
 export async function listCustomers() {
-  return unwrap(await supabase
-    .from('customers')
-    .select('*, branch:branches(name), pickups:customer_pickup_addresses(count), docs:customer_documents(count), login:profiles!customers_profile_id_fkey(email, status)')
-    .order('created_at', { ascending: false }));
+  const [customers, branches, pickups, docs, profiles] = await Promise.all([
+    listAll(T.customers, [Query.orderDesc('$createdAt')]), listBranches(),
+    listAll(T.pickups, [Query.orderAsc('sort_order')]), listAll(T.documents, [Query.select(['$id', 'customer_id'])]), listAll(T.profiles, [Query.equal('role', 'merchant')]),
+  ]);
+  const b = byId(branches);
+  const pk = groupBy(pickups, 'customer_id');
+  const dc = groupBy(docs, 'customer_id');
+  const pr = byId(profiles);
+  return customers.map((c) => ({
+    ...c,
+    branch: nameOf(b, c.branch_id),
+    pickups: pk[c.id] || [],
+    docs: (dc[c.id] || []).length,
+    login: c.profile_id && pr[c.profile_id] ? { id: c.profile_id, email: pr[c.profile_id].email, status: pr[c.profile_id].status } : null,
+  }));
 }
 
+const mapDoc = (d) => ({ ...d, uploaded_at: d.created_at });
+
 export async function getCustomer(id) {
-  return unwrap(await supabase
-    .from('customers')
-    .select('*, branch:branches(name), login:profiles!customers_profile_id_fkey(id, email, status), pickups:customer_pickup_addresses(*), contacts:customer_contacts(*), documents:customer_documents(*)')
-    .eq('id', id)
-    .order('sort_order', { referencedTable: 'customer_pickup_addresses' })
-    .order('sort_order', { referencedTable: 'customer_contacts' })
-    .order('uploaded_at', { referencedTable: 'customer_documents', ascending: false })
-    .maybeSingle());
+  const c = await getRow(T.customers, id);
+  if (!c) return null;
+  const [branch, login, pickups, contacts, documents] = await Promise.all([
+    getRow(T.branches, c.branch_id),
+    getRow(T.profiles, c.profile_id),
+    listAll(T.pickups, [Query.equal('customer_id', id), Query.orderAsc('sort_order')]),
+    listAll(T.contacts, [Query.equal('customer_id', id), Query.orderAsc('sort_order')]),
+    listAll(T.documents, [Query.equal('customer_id', id), Query.orderDesc('$createdAt')]),
+  ]);
+  return {
+    ...c,
+    branch: branch ? { name: branch.name } : null,
+    login: login ? { id: login.id, email: login.email, status: login.status } : null,
+    pickups, contacts, documents: documents.map(mapDoc),
+  };
 }
 
 /** Customers with no portal login yet (for linking a merchant user). */
-export async function listCustomersWithoutLogin() {
-  return unwrap(await supabase.from('customers').select('id, account_no, business_name, email, owner_name, phone, cnic, office_address, city, branch_id').is('profile_id', null).order('business_name'));
-}
+export const listCustomersWithoutLogin = () => listAll(T.customers, [Query.isNull('profile_id'), Query.orderAsc('business_name')]);
 
 /** payload: { id?, customer: {...}, pickups: [...], contacts: [...] } -> customer id */
-export async function saveCustomer(payload) {
-  return unwrap(await supabase.rpc('save_customer', { payload }));
-}
-
-export async function setCustomerStatus(id, patch) {
-  return unwrap(await supabase.from('customers').update(patch).eq('id', id));
-}
-
-export async function deleteCustomer(id) {
-  const docs = unwrap(await supabase.from('customer_documents').select('storage_path').eq('customer_id', id));
-  if (docs.length) await supabase.storage.from('customer-docs').remove(docs.map((d) => d.storage_path));
-  return unwrap(await supabase.from('customers').delete().eq('id', id));
-}
+export const saveCustomer = (payload) => callApi('customers.save', payload).then((r) => r.id);
+export const setCustomerStatus = (id, patch) => callApi('customers.set_status', { id, patch });
+export const deleteCustomer = (id) => callApi('customers.delete', { id });
 
 // ---------------------------------------------------------------- customer documents
 export function validateDoc(file) {
@@ -120,36 +117,38 @@ export function validateDoc(file) {
   return null;
 }
 
-export async function uploadCustomerDoc(customerId, docType, file, userId) {
+/** Uploads to the private bucket, then the api function records it and sets who may read it. */
+export async function uploadCustomerDoc(customerId, docType, file) {
   const problem = validateDoc(file);
   if (problem) throw new Error(problem);
-  const safeName = file.name.replace(/[^\w.\-]+/g, '_').slice(-80);
-  const path = `${customerId}/${crypto.randomUUID()}-${safeName}`;
-  unwrap(await supabase.storage.from('customer-docs').upload(path, file, { contentType: file.type, upsert: false }));
+  let uploaded;
   try {
-    return unwrap(await supabase.from('customer_documents').insert({
-      customer_id: customerId, doc_type: docType, file_name: file.name, storage_path: path, mime_type: file.type, size_bytes: file.size, uploaded_by: userId,
-    }).select().single());
+    uploaded = await storage.createFile({ bucketId: BUCKET, fileId: ID.unique(), file });
   } catch (e) {
-    await supabase.storage.from('customer-docs').remove([path]);
+    throw new Error(friendlyError(e.message));
+  }
+  try {
+    return mapDoc(await callApi('documents.register', { customer_id: customerId, doc_type: docType, file_id: uploaded.$id, file_name: file.name }));
+  } catch (e) {
+    await storage.deleteFile({ bucketId: BUCKET, fileId: uploaded.$id }).catch(() => {});
     throw e;
   }
 }
 
-export async function deleteCustomerDoc(doc) {
-  unwrap(await supabase.storage.from('customer-docs').remove([doc.storage_path]));
-  return unwrap(await supabase.from('customer_documents').delete().eq('id', doc.id));
-}
+export const deleteCustomerDoc = (doc) => callApi('documents.delete', { id: doc.id });
 
-/** Short-lived signed link that downloads the file under its original name. */
+/** Short-lived link that opens the file, or downloads it under its original name. */
 export async function docDownloadUrl(doc, download = true) {
-  const { signedUrl } = unwrap(await supabase.storage.from('customer-docs').createSignedUrl(doc.storage_path, 120, download ? { download: doc.file_name } : undefined));
-  return signedUrl;
+  const { token, file_id: fileId } = await callApi('documents.link', { id: doc.id });
+  const params = { bucketId: BUCKET, fileId, token };
+  return download ? storage.getFileDownload(params) : storage.getFileView(params);
 }
 
 // ---------------------------------------------------------------- riders
 export async function listRiders() {
-  return unwrap(await supabase.from('riders').select('*, branch:branches(name)').order('code'));
+  const [riders, branches] = await Promise.all([listAll(T.riders, [Query.orderAsc('code')]), listBranches()]);
+  const b = byId(branches);
+  return riders.map((r) => ({ ...r, branch: nameOf(b, r.branch_id) }));
 }
 
 // ---------------------------------------------------------------- receivers (per customer account)
@@ -159,37 +158,32 @@ const last10 = (phone = '') => String(phone).replace(/\D/g, '').slice(-10);
 export async function findReceiver(customerId, phone) {
   const key = last10(phone);
   if (!customerId || key.length < 10) return null;
-  return unwrap(await supabase.from('receivers').select('*').eq('customer_id', customerId).eq('phone_key', key).maybeSingle());
+  const rows = await listAll(T.receivers, [Query.equal('customer_id', customerId), Query.equal('phone_key', key), Query.limit(1)]);
+  return rows[0] || null;
 }
 
 /** Another saved receiver (different number) already using this CNIC, or null. */
 export async function findReceiverByCnic(customerId, cnic, exceptPhone) {
   if (!customerId || !cnic) return null;
-  let q = supabase.from('receivers').select('id, name, phone, phone_key').eq('customer_id', customerId).eq('cnic', cnic);
-  if (exceptPhone) q = q.neq('phone_key', last10(exceptPhone));
-  const rows = unwrap(await q.limit(1));
+  const q = [Query.equal('customer_id', customerId), Query.equal('cnic', cnic), Query.limit(1)];
+  if (exceptPhone) q.push(Query.notEqual('phone_key', last10(exceptPhone)));
+  const rows = await listAll(T.receivers, q);
   return rows[0] || null;
 }
 
 /** Save after a booking: new number creates a receiver, a known number updates it. */
-export async function saveReceiver(customerId, r) {
-  return unwrap(await supabase.rpc('save_receiver', {
-    payload: {
-      customer_id: customerId, phone: r.phone, alt_phone: r.altPhone || '', name: r.name, cnic: r.cnic || '',
-      address: r.address, landmark: r.landmark || '', city: r.city, zone: r.zone || '',
-    },
-  }));
-}
+export const saveReceiver = (customerId, r) => callApi('receivers.save', {
+  customer_id: customerId, phone: r.phone, alt_phone: r.altPhone || '', name: r.name, cnic: r.cnic || '',
+  address: r.address, landmark: r.landmark || '', city: r.city, zone: r.zone || '',
+}).then((x) => x.id);
 
 // ---------------------------------------------------------------- pricing (rate card)
 /** The saved rate card, or null when none has been saved yet (the app then uses its defaults). */
 export async function getPricing() {
-  const row = unwrap(await supabase.from('pricing').select('card, updated_at').eq('id', 'default').maybeSingle());
-  return row?.card || null;
+  const row = await getRow(T.pricing, 'default');
+  if (!row?.card) return null;
+  try { return JSON.parse(row.card); } catch { return null; }
 }
 
-/** Super Admin only (enforced by the database). */
-export async function savePricing(card) {
-  const { data: { user } } = await supabase.auth.getUser();
-  return unwrap(await supabase.from('pricing').upsert({ id: 'default', card, updated_by: user?.id || null }).select('updated_at').single());
-}
+/** Super Admin only (enforced by the api function). */
+export const savePricing = (card) => callApi('pricing.save', { card });

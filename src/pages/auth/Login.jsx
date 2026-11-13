@@ -8,7 +8,7 @@ import { useAuth } from '../../store/authStore.js';
 import { useUI, toast } from '../../store/uiStore.js';
 import { Logo } from '../../components/layout/AppLayout.jsx';
 import { FieldError } from '../../components/forms/EntityForm.jsx';
-import { getRemember, setRemember } from '../../lib/supabase.js';
+import { getRemember, setRemember } from '../../lib/appwrite.js';
 
 const EMAIL_KEY = 'slx-last-email';
 const readEmail = () => { try { return localStorage.getItem(EMAIL_KEY) || ''; } catch { return ''; } };

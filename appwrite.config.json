@@ -1,0 +1,331 @@
+{
+  "projectId": "6af5d0a7002b1ee69d2f",
+  "projectName": "Courier SaaS",
+  "endpoint": "https://sgp.cloud.appwrite.io/v1",
+  "tablesDB": [
+    { "$id": "logix", "name": "logix", "enabled": true }
+  ],
+  "tables": [
+    {
+      "$id": "branches",
+      "databaseId": "logix",
+      "name": "branches",
+      "enabled": true,
+      "rowSecurity": false,
+      "$permissions": ["read(\"users\")"],
+      "columns": [
+        { "key": "code", "type": "varchar", "size": 20, "required": true, "array": false },
+        { "key": "name", "type": "varchar", "size": 80, "required": true, "array": false },
+        { "key": "type", "type": "string", "format": "enum", "elements": ["Hub", "Office", "Warehouse", "Franchise"], "required": true, "array": false },
+        { "key": "city", "type": "varchar", "size": 60, "required": true, "array": false },
+        { "key": "address", "type": "varchar", "size": 200, "required": false, "array": false },
+        { "key": "phone", "type": "varchar", "size": 20, "required": false, "array": false },
+        { "key": "email", "type": "varchar", "size": 254, "required": false, "array": false },
+        { "key": "hours", "type": "varchar", "size": 30, "required": false, "array": false },
+        { "key": "status", "type": "string", "format": "enum", "elements": ["Active", "Inactive"], "required": false, "array": false, "default": "Active" },
+        { "key": "target_shipments", "type": "integer", "required": false, "array": false, "default": 0 },
+        { "key": "target_revenue", "type": "double", "required": false, "array": false, "default": 0 },
+        { "key": "commission_pct", "type": "double", "required": false, "array": false, "default": 0 }
+      ],
+      "indexes": [
+        { "key": "code_unique", "type": "unique", "columns": ["code"], "orders": ["ASC"] }
+      ]
+    },
+    {
+      "$id": "banks",
+      "databaseId": "logix",
+      "name": "banks",
+      "enabled": true,
+      "rowSecurity": false,
+      "$permissions": ["read(\"users\")"],
+      "columns": [
+        { "key": "name", "type": "varchar", "size": 80, "required": true, "array": false },
+        { "key": "country", "type": "varchar", "size": 2, "required": false, "array": false, "default": "PK" },
+        { "key": "active", "type": "boolean", "required": false, "array": false, "default": true }
+      ],
+      "indexes": [
+        { "key": "name_unique", "type": "unique", "columns": ["name"], "orders": ["ASC"] }
+      ]
+    },
+    {
+      "$id": "profiles",
+      "databaseId": "logix",
+      "name": "profiles",
+      "enabled": true,
+      "rowSecurity": true,
+      "$permissions": [],
+      "columns": [
+        { "key": "full_name", "type": "varchar", "size": 80, "required": true, "array": false },
+        { "key": "email", "type": "varchar", "size": 254, "required": true, "array": false },
+        { "key": "phone", "type": "varchar", "size": 20, "required": false, "array": false },
+        { "key": "cnic", "type": "varchar", "size": 15, "required": false, "array": false },
+        { "key": "address", "type": "varchar", "size": 250, "required": false, "array": false },
+        { "key": "role", "type": "string", "format": "enum", "elements": ["super_admin", "branch_manager", "accountant", "warehouse", "rider", "merchant"], "required": true, "array": false },
+        { "key": "branch_id", "type": "varchar", "size": 10, "required": false, "array": false },
+        { "key": "status", "type": "string", "format": "enum", "elements": ["Active", "Inactive"], "required": false, "array": false, "default": "Active" },
+        { "key": "created_by", "type": "varchar", "size": 36, "required": false, "array": false },
+        { "key": "last_login", "type": "datetime", "required": false, "array": false }
+      ],
+      "indexes": [
+        { "key": "email_unique", "type": "unique", "columns": ["email"], "orders": ["ASC"] },
+        { "key": "branch_idx", "type": "key", "columns": ["branch_id"], "orders": ["ASC"] }
+      ]
+    },
+    {
+      "$id": "staff_details",
+      "databaseId": "logix",
+      "name": "staff_details",
+      "enabled": true,
+      "rowSecurity": true,
+      "$permissions": [],
+      "columns": [
+        { "key": "employee_code", "type": "varchar", "size": 20, "required": false, "array": false },
+        { "key": "designation", "type": "varchar", "size": 60, "required": false, "array": false },
+        { "key": "department", "type": "varchar", "size": 60, "required": false, "array": false },
+        { "key": "joining_date", "type": "varchar", "size": 10, "required": false, "array": false },
+        { "key": "shift", "type": "string", "format": "enum", "elements": ["Morning", "Evening", "Night", "General"], "required": false, "array": false },
+        { "key": "salary", "type": "double", "required": false, "array": false },
+        { "key": "emergency_contact_name", "type": "varchar", "size": 80, "required": false, "array": false },
+        { "key": "emergency_contact_phone", "type": "varchar", "size": 20, "required": false, "array": false }
+      ],
+      "indexes": [
+        { "key": "employee_code_idx", "type": "key", "columns": ["employee_code"], "orders": ["ASC"] }
+      ]
+    },
+    {
+      "$id": "riders",
+      "databaseId": "logix",
+      "name": "riders",
+      "enabled": true,
+      "rowSecurity": true,
+      "$permissions": [],
+      "columns": [
+        { "key": "code", "type": "varchar", "size": 10, "required": true, "array": false },
+        { "key": "profile_id", "type": "varchar", "size": 36, "required": false, "array": false },
+        { "key": "full_name", "type": "varchar", "size": 80, "required": true, "array": false },
+        { "key": "phone", "type": "varchar", "size": 20, "required": true, "array": false },
+        { "key": "cnic", "type": "varchar", "size": 15, "required": false, "array": false },
+        { "key": "address", "type": "varchar", "size": 250, "required": false, "array": false },
+        { "key": "branch_id", "type": "varchar", "size": 10, "required": true, "array": false },
+        { "key": "city", "type": "varchar", "size": 60, "required": false, "array": false },
+        { "key": "zone", "type": "varchar", "size": 60, "required": false, "array": false },
+        { "key": "vehicle_type", "type": "string", "format": "enum", "elements": ["Motorcycle", "Bicycle", "Car", "Van", "Truck"], "required": false, "array": false, "default": "Motorcycle" },
+        { "key": "vehicle_plate", "type": "varchar", "size": 12, "required": false, "array": false },
+        { "key": "license_no", "type": "varchar", "size": 20, "required": false, "array": false },
+        { "key": "license_expiry", "type": "varchar", "size": 10, "required": false, "array": false },
+        { "key": "emergency_contact_name", "type": "varchar", "size": 80, "required": false, "array": false },
+        { "key": "emergency_contact_phone", "type": "varchar", "size": 20, "required": false, "array": false },
+        { "key": "status", "type": "string", "format": "enum", "elements": ["Available", "On Route", "On Leave", "Inactive"], "required": false, "array": false, "default": "Available" },
+        { "key": "joined_at", "type": "varchar", "size": 10, "required": false, "array": false }
+      ],
+      "indexes": [
+        { "key": "code_unique", "type": "unique", "columns": ["code"], "orders": ["ASC"] },
+        { "key": "profile_idx", "type": "key", "columns": ["profile_id"], "orders": ["ASC"] },
+        { "key": "branch_idx", "type": "key", "columns": ["branch_id"], "orders": ["ASC"] }
+      ]
+    },
+    {
+      "$id": "customers",
+      "databaseId": "logix",
+      "name": "customers",
+      "enabled": true,
+      "rowSecurity": true,
+      "$permissions": [],
+      "columns": [
+        { "key": "account_no", "type": "varchar", "size": 20, "required": true, "array": false },
+        { "key": "business_name", "type": "varchar", "size": 120, "required": true, "array": false },
+        { "key": "customer_type", "type": "string", "format": "enum", "elements": ["E-commerce Merchant", "Corporate", "SME / Retail", "Individual", "Marketplace Seller"], "required": true, "array": false },
+        { "key": "shipping_plans", "type": "varchar", "size": 20, "required": false, "array": true },
+        { "key": "owner_name", "type": "varchar", "size": 80, "required": true, "array": false },
+        { "key": "cnic", "type": "varchar", "size": 15, "required": false, "array": false },
+        { "key": "ntn", "type": "varchar", "size": 15, "required": false, "array": false },
+        { "key": "phone", "type": "varchar", "size": 20, "required": true, "array": false },
+        { "key": "email", "type": "varchar", "size": 254, "required": false, "array": false },
+        { "key": "office_address", "type": "varchar", "size": 250, "required": false, "array": false },
+        { "key": "city", "type": "varchar", "size": 60, "required": false, "array": false },
+        { "key": "branch_id", "type": "varchar", "size": 10, "required": false, "array": false },
+        { "key": "bank_name", "type": "varchar", "size": 80, "required": false, "array": false },
+        { "key": "account_title", "type": "varchar", "size": 100, "required": false, "array": false },
+        { "key": "iban", "type": "varchar", "size": 34, "required": false, "array": false },
+        { "key": "rate_card", "type": "varchar", "size": 40, "required": false, "array": false, "default": "Standard" },
+        { "key": "discount_pct", "type": "double", "required": false, "array": false, "default": 0 },
+        { "key": "credit_limit", "type": "double", "required": false, "array": false, "default": 0 },
+        { "key": "status", "type": "string", "format": "enum", "elements": ["Active", "Inactive", "Suspended"], "required": false, "array": false, "default": "Active" },
+        { "key": "kyc_status", "type": "string", "format": "enum", "elements": ["Pending", "Verified", "Rejected"], "required": false, "array": false, "default": "Pending" },
+        { "key": "notes", "type": "varchar", "size": 1000, "required": false, "array": false },
+        { "key": "profile_id", "type": "varchar", "size": 36, "required": false, "array": false },
+        { "key": "created_by", "type": "varchar", "size": 36, "required": false, "array": false }
+      ],
+      "indexes": [
+        { "key": "account_no_unique", "type": "unique", "columns": ["account_no"], "orders": ["ASC"] },
+        { "key": "profile_idx", "type": "key", "columns": ["profile_id"], "orders": ["ASC"] },
+        { "key": "branch_idx", "type": "key", "columns": ["branch_id"], "orders": ["ASC"] },
+        { "key": "business_name_idx", "type": "key", "columns": ["business_name"], "orders": ["ASC"] }
+      ]
+    },
+    {
+      "$id": "customer_pickup_addresses",
+      "databaseId": "logix",
+      "name": "customer_pickup_addresses",
+      "enabled": true,
+      "rowSecurity": true,
+      "$permissions": [],
+      "columns": [
+        { "key": "customer_id", "type": "varchar", "size": 36, "required": true, "array": false },
+        { "key": "label", "type": "varchar", "size": 40, "required": false, "array": false, "default": "Main" },
+        { "key": "address", "type": "varchar", "size": 250, "required": true, "array": false },
+        { "key": "city", "type": "varchar", "size": 60, "required": true, "array": false },
+        { "key": "contact_name", "type": "varchar", "size": 80, "required": false, "array": false },
+        { "key": "phone", "type": "varchar", "size": 20, "required": false, "array": false },
+        { "key": "return_same_as_pickup", "type": "boolean", "required": false, "array": false, "default": true },
+        { "key": "return_address", "type": "varchar", "size": 250, "required": false, "array": false },
+        { "key": "return_city", "type": "varchar", "size": 60, "required": false, "array": false },
+        { "key": "return_phone", "type": "varchar", "size": 20, "required": false, "array": false },
+        { "key": "is_default", "type": "boolean", "required": false, "array": false, "default": false },
+        { "key": "sort_order", "type": "integer", "required": false, "array": false, "default": 0 }
+      ],
+      "indexes": [
+        { "key": "customer_idx", "type": "key", "columns": ["customer_id"], "orders": ["ASC"] }
+      ]
+    },
+    {
+      "$id": "customer_contacts",
+      "databaseId": "logix",
+      "name": "customer_contacts",
+      "enabled": true,
+      "rowSecurity": true,
+      "$permissions": [],
+      "columns": [
+        { "key": "customer_id", "type": "varchar", "size": 36, "required": true, "array": false },
+        { "key": "name", "type": "varchar", "size": 80, "required": true, "array": false },
+        { "key": "designation", "type": "varchar", "size": 60, "required": false, "array": false },
+        { "key": "phone", "type": "varchar", "size": 20, "required": true, "array": false },
+        { "key": "email", "type": "varchar", "size": 254, "required": false, "array": false },
+        { "key": "is_primary", "type": "boolean", "required": false, "array": false, "default": false },
+        { "key": "sort_order", "type": "integer", "required": false, "array": false, "default": 0 }
+      ],
+      "indexes": [
+        { "key": "customer_idx", "type": "key", "columns": ["customer_id"], "orders": ["ASC"] }
+      ]
+    },
+    {
+      "$id": "customer_documents",
+      "databaseId": "logix",
+      "name": "customer_documents",
+      "enabled": true,
+      "rowSecurity": true,
+      "$permissions": [],
+      "columns": [
+        { "key": "customer_id", "type": "varchar", "size": 36, "required": true, "array": false },
+        { "key": "doc_type", "type": "string", "format": "enum", "elements": ["CNIC Front", "CNIC Back", "Cheque", "NTN Certificate", "Business Registration", "Agreement", "Other"], "required": true, "array": false },
+        { "key": "file_name", "type": "varchar", "size": 255, "required": true, "array": false },
+        { "key": "file_id", "type": "varchar", "size": 36, "required": true, "array": false },
+        { "key": "mime_type", "type": "varchar", "size": 100, "required": false, "array": false },
+        { "key": "size_bytes", "type": "integer", "required": true, "array": false },
+        { "key": "uploaded_by", "type": "varchar", "size": 36, "required": false, "array": false }
+      ],
+      "indexes": [
+        { "key": "customer_idx", "type": "key", "columns": ["customer_id"], "orders": ["ASC"] },
+        { "key": "file_unique", "type": "unique", "columns": ["file_id"], "orders": ["ASC"] }
+      ]
+    },
+    {
+      "$id": "receivers",
+      "databaseId": "logix",
+      "name": "receivers",
+      "enabled": true,
+      "rowSecurity": true,
+      "$permissions": [],
+      "columns": [
+        { "key": "customer_id", "type": "varchar", "size": 36, "required": true, "array": false },
+        { "key": "phone", "type": "varchar", "size": 20, "required": true, "array": false },
+        { "key": "phone_key", "type": "varchar", "size": 10, "required": true, "array": false },
+        { "key": "alt_phone", "type": "varchar", "size": 20, "required": false, "array": false },
+        { "key": "name", "type": "varchar", "size": 80, "required": true, "array": false },
+        { "key": "cnic", "type": "varchar", "size": 15, "required": false, "array": false },
+        { "key": "address", "type": "varchar", "size": 250, "required": true, "array": false },
+        { "key": "landmark", "type": "varchar", "size": 120, "required": false, "array": false },
+        { "key": "city", "type": "varchar", "size": 60, "required": true, "array": false },
+        { "key": "zone", "type": "varchar", "size": 60, "required": false, "array": false },
+        { "key": "shipments_count", "type": "integer", "required": false, "array": false, "default": 0 },
+        { "key": "last_used_at", "type": "datetime", "required": false, "array": false },
+        { "key": "created_by", "type": "varchar", "size": 36, "required": false, "array": false }
+      ],
+      "indexes": [
+        { "key": "phone_unique", "type": "unique", "columns": ["customer_id", "phone_key"], "orders": ["ASC", "ASC"] },
+        { "key": "cnic_idx", "type": "key", "columns": ["customer_id", "cnic"], "orders": ["ASC", "ASC"] }
+      ]
+    },
+    {
+      "$id": "pricing",
+      "databaseId": "logix",
+      "name": "pricing",
+      "enabled": true,
+      "rowSecurity": false,
+      "$permissions": ["read(\"users\")"],
+      "columns": [
+        { "key": "card", "type": "mediumtext", "required": true, "array": false },
+        { "key": "updated_by", "type": "varchar", "size": 36, "required": false, "array": false }
+      ],
+      "indexes": []
+    },
+    {
+      "$id": "counters",
+      "databaseId": "logix",
+      "name": "counters",
+      "enabled": true,
+      "rowSecurity": false,
+      "$permissions": [],
+      "columns": [
+        { "key": "value", "type": "integer", "required": false, "array": false, "default": 0 }
+      ],
+      "indexes": []
+    }
+  ],
+  "teams": [
+    { "$id": "LHE", "name": "Lahore Main Hub" },
+    { "$id": "KHI", "name": "Karachi Port Hub" },
+    { "$id": "ISB", "name": "Islamabad Office" },
+    { "$id": "PEW", "name": "Peshawar Franchise" },
+    { "$id": "DXB", "name": "Dubai Warehouse" },
+    { "$id": "SHJ", "name": "Sharjah Office" }
+  ],
+  "buckets": [
+    {
+      "$id": "customer-docs",
+      "name": "customer-docs",
+      "$permissions": ["create(\"users\")"],
+      "fileSecurity": true,
+      "enabled": true,
+      "maximumFileSize": 10485760,
+      "allowedFileExtensions": ["pdf", "jpg", "jpeg", "png", "webp"],
+      "compression": "none",
+      "encryption": true,
+      "antivirus": true
+    }
+  ],
+  "functions": [
+    {
+      "$id": "api",
+      "name": "api",
+      "runtime": "node-22",
+      "execute": ["users"],
+      "events": [],
+      "schedule": "",
+      "timeout": 30,
+      "enabled": true,
+      "logging": true,
+      "entrypoint": "src/main.js",
+      "commands": "npm install",
+      "path": "functions/api",
+      "scopes": [
+        "users.read", "users.write", "teams.read", "teams.write",
+        "databases.read", "tables.read", "rows.read", "rows.write",
+        "buckets.read", "files.read", "files.write", "tokens.read", "tokens.write", "sessions.write"
+      ],
+      "vars": [
+        { "key": "APPWRITE_ENDPOINT", "value": "https://sgp.cloud.appwrite.io/v1" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "logix-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Selections Logix Suite: every database write goes through this Appwrite Function, which checks the caller's role.",
+  "type": "module",
+  "main": "src/main.js",
+  "dependencies": {
+    "node-appwrite": "^31.2.0"
+  }
+}

@@ -1,7 +1,7 @@
-// Real authentication through Supabase Auth. `user` keeps the shape the screens already use
+// Real authentication through Appwrite. `user` keeps the shape the screens already use
 // ({ id, name, email, role, branchId, merchantId, riderId }) so role scoping works unchanged.
 import { create } from 'zustand';
-import { supabase, supabaseConfigured } from '../lib/supabase.js';
+import { account, appwriteConfigured, callApi, clearStoredSession, friendlyError, markSession, storedSessionAllowed } from '../lib/appwrite.js';
 import { fetchMyProfile } from '../lib/api.js';
 
 const toUser = (p) => ({
@@ -16,6 +16,17 @@ const toUser = (p) => ({
   riderId: p.rider_id,
 });
 
+const NOT_CONFIGURED = 'Appwrite is not configured. Set VITE_APPWRITE_ENDPOINT and VITE_APPWRITE_PROJECT_ID in .env.';
+
+async function currentUserId() {
+  try { return (await account.get()).$id; } catch { return null; }
+}
+
+async function signOut() {
+  await account.deleteSession({ sessionId: 'current' }).catch(() => {});
+  clearStoredSession();
+}
+
 export const useAuth = create((set, get) => ({
   user: null,
   ready: false, // false until the stored session has been checked
@@ -23,28 +34,33 @@ export const useAuth = create((set, get) => ({
 
   /** Called once at start-up: restores the session and follows sign-in/out from other tabs. */
   init: async () => {
-    if (!supabaseConfigured) { set({ ready: true, error: 'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in .env.' }); return; }
-    const { data } = await supabase.auth.getSession();
-    await get().loadProfile(data.session?.user?.id);
+    if (!appwriteConfigured) { set({ ready: true, error: NOT_CONFIGURED }); return; }
+    if (!storedSessionAllowed()) clearStoredSession(); // "Remember me" was off and the browser was closed
+    await get().loadProfile(await currentUserId());
     set({ ready: true });
-    supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT') set({ user: null });
-      // Run outside the auth callback; Supabase warns against awaiting inside it.
-      else if (event === 'SIGNED_IN' && session?.user?.id !== get().user?.id) setTimeout(() => get().loadProfile(session.user.id), 0);
+    // The SDK keeps the session in localStorage, so another tab signing in or out changes that key.
+    window.addEventListener('storage', (e) => {
+      if (e.key !== 'cookieFallback' && e.key !== null) return;
+      currentUserId().then((id) => { if (id !== get().user?.id) get().loadProfile(id); });
     });
   },
 
   loadProfile: async (userId) => {
     if (!userId) { set({ user: null }); return null; }
     try {
-      const p = await fetchMyProfile(userId);
+      let p = await fetchMyProfile(userId);
       if (!p) {
-        await supabase.auth.signOut();
+        // A fresh project: the first login becomes the Super Admin and the reference data is written.
+        const boot = await callApi('bootstrap').catch(() => null);
+        if (boot?.created) p = await fetchMyProfile(userId);
+      }
+      if (!p) {
+        await signOut();
         set({ user: null, error: 'This login has no profile yet. Ask the Super Admin to set up your account.' });
         return null;
       }
       if (p.status !== 'Active') {
-        await supabase.auth.signOut();
+        await signOut();
         set({ user: null, error: 'Your account is inactive. Contact the Super Admin.' });
         return null;
       }
@@ -59,16 +75,23 @@ export const useAuth = create((set, get) => ({
 
   /** Returns { user } or { error }. */
   login: async (email, password) => {
-    if (!supabaseConfigured) return { error: get().error || 'Supabase is not configured' };
-    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (error) return { error: error.message === 'Invalid login credentials' ? 'Email or password is incorrect.' : error.message };
-    const user = await get().loadProfile(data.user.id);
+    if (!appwriteConfigured) return { error: get().error || NOT_CONFIGURED };
+    clearStoredSession();
+    let session;
+    try {
+      session = await account.createEmailPasswordSession({ email: email.trim(), password });
+    } catch (e) {
+      return { error: friendlyError(e.message) };
+    }
+    markSession();
+    const user = await get().loadProfile(session.userId);
+    if (user) callApi('profiles.touch_login').catch(() => {});
     return user ? { user } : { error: get().error };
   },
 
   logout: async () => {
     set({ user: null });
-    if (supabaseConfigured) await supabase.auth.signOut();
+    if (appwriteConfigured) await signOut();
   },
 
   refresh: () => get().loadProfile(get().user?.id),

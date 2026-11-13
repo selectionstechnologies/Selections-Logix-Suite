@@ -1,7 +1,7 @@
 // Loads the database-backed lists (branches, customer accounts, riders, users) into the
 // operations store after sign-in, so every screen works from the real records.
 import { useCallback, useEffect } from 'react';
-import { supabase } from '../lib/supabase.js';
+import { getPricing, listBranches, listCustomers, listProfiles, listRiders } from '../lib/api.js';
 import { useAuth } from '../store/authStore.js';
 import { useData } from '../store/dataStore.js';
 import { CITY_MAP } from '../data/geo.js';
@@ -49,22 +49,20 @@ const mapUser = (p) => ({
   id: p.id, name: p.full_name, email: p.email, role: p.role, branchId: p.branch_id, status: p.status, phone: p.phone || '', lastLogin: p.last_login,
 });
 
+// A failed request keeps the previous list rather than blanking the screen.
+const settle = (p) => p.then((data) => ({ data })).catch((error) => ({ error }));
+
 export async function syncFromDb() {
   const [branches, customers, riders, users, pricing] = await Promise.all([
-    supabase.from('branches').select('*').order('id'),
-    supabase.from('customers').select('*, pickups:customer_pickup_addresses(*)').order('business_name'),
-    supabase.from('riders').select('*').order('code'),
-    supabase.from('profiles').select('id, full_name, email, role, branch_id, status, phone, last_login').order('full_name'),
-    supabase.from('pricing').select('card').eq('id', 'default').maybeSingle(),
+    settle(listBranches()), settle(listCustomers()), settle(listRiders()), settle(listProfiles()), settle(getPricing()),
   ]);
-  // A failed request keeps the previous list rather than blanking the screen.
   useData.setState((s) => ({
     branches: branches.data ? branches.data.map(mapBranch) : s.branches,
     merchants: customers.data ? customers.data.map(mapCustomer) : s.merchants,
     riders: riders.data ? riders.data.map(mapRider) : s.riders,
     users: users.data ? users.data.map(mapUser) : s.users,
     // The saved rate card wins; until the admin saves one, the built-in defaults apply.
-    rateCard: pricing.data?.card ? { ...DEFAULT_RATE_CARD, ...pricing.data.card } : pricing.error ? s.rateCard : DEFAULT_RATE_CARD,
+    rateCard: pricing.data ? { ...DEFAULT_RATE_CARD, ...pricing.data } : pricing.error ? s.rateCard : DEFAULT_RATE_CARD,
   }));
 }
 

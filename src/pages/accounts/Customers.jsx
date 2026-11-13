@@ -14,7 +14,7 @@ import { syncFromDb } from '../../hooks/useDbSync.js';
 import { shippingPlanLabel, SHIPPING_PLANS } from '../../utils/pricing.js';
 import { CUSTOMER_TYPES, createUser, deleteCustomer, docDownloadUrl, getCustomer, listCustomers, setCustomerStatus } from '../../lib/api.js';
 
-const count = (x) => (Array.isArray(x) ? x[0]?.count ?? 0 : 0);
+const count = (x) => (Array.isArray(x) ? x.length : Number(x) || 0);
 const fmtSize = (b) => (b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 const canManage = (role) => ['super_admin', 'branch_manager'].includes(role);
 

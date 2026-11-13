@@ -240,7 +240,7 @@ export function CustomerForm() {
 
       const failed = [];
       for (const p of pending) {
-        try { await uploadCustomerDoc(customerId, p.docType, p.file, me.id); } catch (e) { failed.push(`${p.file.name}: ${e.message}`); }
+        try { await uploadCustomerDoc(customerId, p.docType, p.file); } catch (e) { failed.push(`${p.file.name}: ${e.message}`); }
       }
       if (failed.length) toast.error(`Some documents did not upload. ${failed.join('; ')}`);
 
